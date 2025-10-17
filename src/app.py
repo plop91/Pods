@@ -81,6 +81,7 @@ class PodsApp:
 
         # Event bindings
         self.canvas.bind("<Button-1>", self.on_canvas_click)
+        self.canvas.bind("<Button-3>", self.on_canvas_right_click)  # Right-click
         self.canvas.bind("<Double-Button-1>", self.on_canvas_double_click)
         self.canvas.bind("<B1-Motion>", self.on_canvas_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_canvas_release)
@@ -169,16 +170,8 @@ class PodsApp:
         elif pod.hovered:
             outline_color = "#5DADE2"
 
-        # Draw shape
-        if pod.shape == "oval":
-            self.canvas.create_oval(
-                x1, y1, x2, y2,
-                fill=fill_color,
-                outline=outline_color,
-                width=outline_width,
-                tags=("pod", pod.id)
-            )
-        else:  # rectangle
+        # Draw shape (force rectangle if description is enabled)
+        if pod.has_description or pod.shape == "rectangle":
             self.canvas.create_rectangle(
                 x1, y1, x2, y2,
                 fill=fill_color,
@@ -186,15 +179,61 @@ class PodsApp:
                 width=outline_width,
                 tags=("pod", pod.id)
             )
+        else:  # oval
+            self.canvas.create_oval(
+                x1, y1, x2, y2,
+                fill=fill_color,
+                outline=outline_color,
+                width=outline_width,
+                tags=("pod", pod.id)
+            )
 
-        # Draw text
-        self.canvas.create_text(
-            pod.x + offset_x, pod.y + offset_y,
-            text=pod.name,
-            fill=pod.text_color,
-            font=("Arial", 10),
-            tags=("pod", pod.id)
-        )
+        # Draw text and description if enabled
+        if pod.has_description:
+            # Calculate separator position (30% from top for name section)
+            separator_y = y1 + (y2 - y1) * 0.3
+            name_y = y1 + (separator_y - y1) / 2
+            desc_y = separator_y + (y2 - separator_y) / 2
+
+            # Draw name in top section
+            self.canvas.create_text(
+                pod.x + offset_x, name_y,
+                text=pod.name,
+                fill=pod.text_color,
+                font=("Arial", 10, "bold"),
+                tags=("pod", pod.id)
+            )
+
+            # Draw separator line
+            self.canvas.create_line(
+                x1 + 5, separator_y, x2 - 5, separator_y,
+                fill="#95A5A6",
+                width=1,
+                tags=("pod", pod.id)
+            )
+
+            # Draw description in bottom section (word-wrapped if needed)
+            if pod.description:
+                # Simple word wrapping
+                max_width = pod.width - 10
+                wrapped_text = self.wrap_text(pod.description, max_width, ("Arial", 8))
+                self.canvas.create_text(
+                    pod.x + offset_x, desc_y,
+                    text=wrapped_text,
+                    fill=pod.text_color,
+                    font=("Arial", 8),
+                    width=max_width,
+                    tags=("pod", pod.id)
+                )
+        else:
+            # Draw text normally
+            self.canvas.create_text(
+                pod.x + offset_x, pod.y + offset_y,
+                text=pod.name,
+                fill=pod.text_color,
+                font=("Arial", 10),
+                tags=("pod", pod.id)
+            )
 
         # Draw indicator if pod has children
         if pod.children:
@@ -210,6 +249,12 @@ class PodsApp:
         if pod.selected:
             self.render_resize_handles(pod, offset_x, offset_y)
             self.render_relationship_buttons(pod, offset_x, offset_y)
+
+    def wrap_text(self, text: str, max_width: float, font) -> str:
+        """Simple text wrapping helper."""
+        # For simplicity, just return the text - tkinter Text widget handles wrapping
+        # This could be enhanced with proper text measurement
+        return text
 
     def get_resize_handle_positions(self, pod: Pod, offset_x: float, offset_y: float):
         """Get the positions of all resize handles for a pod."""
@@ -643,6 +688,126 @@ class PodsApp:
             self.relationship_source_pod = None
             self.relationship_source_direction = None
             self.canvas.config(cursor="arrow")
+            self.render()
+
+    def on_canvas_right_click(self, event):
+        """Handle right-click on canvas - show context menu for pods."""
+        pod = self.get_pod_at_position(event.x, event.y)
+
+        if pod:
+            # Create context menu
+            menu = tk.Menu(self.root, tearoff=0)
+            menu.add_command(label="Edit Name", command=lambda: self.edit_pod_name(pod))
+            menu.add_separator()
+
+            # Add checkbox for description
+            desc_var = tk.BooleanVar(value=pod.has_description)
+            menu.add_checkbutton(
+                label="Show Description",
+                variable=desc_var,
+                command=lambda: self.toggle_pod_description(pod, desc_var.get())
+            )
+
+            if pod.has_description:
+                menu.add_command(label="Edit Description", command=lambda: self.edit_pod_description(pod))
+
+            # Display menu at cursor position
+            try:
+                menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                menu.grab_release()
+
+    def edit_pod_name(self, pod: Pod):
+        """Open dialog to edit pod name."""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Edit Pod Name")
+        dialog.geometry("400x120")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        # Center the dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
+        y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+
+        # Name entry
+        tk.Label(dialog, text="Pod Name:").pack(pady=(10, 5))
+        name_entry = tk.Entry(dialog, width=40)
+        name_entry.insert(0, pod.name)
+        name_entry.pack(pady=5)
+        name_entry.focus()
+        name_entry.select_range(0, tk.END)
+
+        def save_name():
+            pod.name = name_entry.get()
+            dialog.destroy()
+            self.render()
+
+        def cancel():
+            dialog.destroy()
+
+        # Buttons
+        button_frame = tk.Frame(dialog)
+        button_frame.pack(pady=10)
+        tk.Button(button_frame, text="Save", command=save_name, width=10).pack(side=tk.LEFT, padx=5)
+        tk.Button(button_frame, text="Cancel", command=cancel, width=10).pack(side=tk.LEFT, padx=5)
+
+        # Bind Enter key to save
+        name_entry.bind("<Return>", lambda e: save_name())
+        dialog.bind("<Escape>", lambda e: cancel())
+
+    def edit_pod_description(self, pod: Pod):
+        """Open dialog to edit pod description."""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Edit Pod Description")
+        dialog.geometry("500x300")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        # Center the dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
+        y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+
+        # Description text area
+        tk.Label(dialog, text="Description:").pack(pady=(10, 5))
+        text_frame = tk.Frame(dialog)
+        text_frame.pack(padx=10, pady=5, fill=tk.BOTH, expand=True)
+
+        scrollbar = tk.Scrollbar(text_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        desc_text = tk.Text(text_frame, width=60, height=10, yscrollcommand=scrollbar.set, wrap=tk.WORD)
+        desc_text.insert("1.0", pod.description)
+        desc_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=desc_text.yview)
+        desc_text.focus()
+
+        def save_description():
+            pod.description = desc_text.get("1.0", tk.END).strip()
+            dialog.destroy()
+            self.render()
+
+        def cancel():
+            dialog.destroy()
+
+        # Buttons
+        button_frame = tk.Frame(dialog)
+        button_frame.pack(pady=10)
+        tk.Button(button_frame, text="Save", command=save_description, width=10).pack(side=tk.LEFT, padx=5)
+        tk.Button(button_frame, text="Cancel", command=cancel, width=10).pack(side=tk.LEFT, padx=5)
+
+        dialog.bind("<Escape>", lambda e: cancel())
+
+    def toggle_pod_description(self, pod: Pod, enabled: bool):
+        """Toggle description visibility for a pod."""
+        pod.has_description = enabled
+        if enabled and not pod.description:
+            # If enabling description for the first time, open edit dialog
+            self.edit_pod_description(pod)
+        else:
             self.render()
 
     def navigate_into(self, pod: Pod):

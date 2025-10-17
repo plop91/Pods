@@ -32,6 +32,10 @@ class Pod:
         # Child pods contained within this pod
         self.children: List[Pod] = []
 
+        # Description support
+        self.description = ""
+        self.has_description = False
+
         # Visual properties
         self.color = "#E8F4F8"
         self.border_color = "#2C3E50"
