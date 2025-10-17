@@ -58,8 +58,8 @@ class PodsApp:
         # Create some example pods
         self.create_example_data()
 
-        # Initial render
-        self.render()
+        # Delay initial render until window is fully displayed and canvas has correct dimensions
+        self.root.after(10, self.render)
 
     def setup_ui(self):
         """Setup the user interface."""
