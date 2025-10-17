@@ -39,6 +39,7 @@ class PodsApp:
         # Pan/zoom state
         self.pan_offset_x = 0
         self.pan_offset_y = 0
+        self.zoom_scale = 1.0  # 1.0 = 100%, 2.0 = 200%, 0.5 = 50%
 
         # Relationship creation state
         self.creating_relationship = False
@@ -111,6 +112,9 @@ class PodsApp:
         self.canvas.bind("<B1-Motion>", self.on_canvas_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_canvas_release)
         self.canvas.bind("<Motion>", self.on_canvas_motion)
+        self.canvas.bind("<MouseWheel>", self.on_mouse_wheel)  # Windows/macOS
+        self.canvas.bind("<Button-4>", self.on_mouse_wheel)  # Linux scroll up
+        self.canvas.bind("<Button-5>", self.on_mouse_wheel)  # Linux scroll down
         self.root.bind("<Escape>", self.on_escape_key)
 
     def create_example_data(self):
@@ -161,11 +165,7 @@ class PodsApp:
 
         # Render relationship creation indicator if in creation mode
         if self.creating_relationship and self.relationship_source_pod:
-            # Draw a visual indicator from the source pod
-            source_x = self.relationship_source_pod.x + offset_x
-            source_y = self.relationship_source_pod.y + offset_y
-
-            # Draw instruction text
+            # Draw instruction text (not affected by zoom)
             self.canvas.create_text(
                 offset_x, 20,
                 text="Click on a pod to create a relationship",
@@ -177,6 +177,12 @@ class PodsApp:
     def render_pod(self, pod: Pod, offset_x: float, offset_y: float):
         """Render a single pod on the canvas."""
         x1, y1, x2, y2 = pod.get_bounds()
+
+        # Apply zoom scaling
+        x1 *= self.zoom_scale
+        y1 *= self.zoom_scale
+        x2 *= self.zoom_scale
+        y2 *= self.zoom_scale
 
         # Apply offset for centering
         x1 += offset_x
@@ -222,7 +228,7 @@ class PodsApp:
 
             # Draw name in top section
             self.canvas.create_text(
-                pod.x + offset_x, name_y,
+                pod.x * self.zoom_scale + offset_x, name_y,
                 text=pod.name,
                 fill=pod.text_color,
                 font=("Arial", 10, "bold"),
@@ -240,10 +246,10 @@ class PodsApp:
             # Draw description in bottom section (word-wrapped if needed)
             if pod.description:
                 # Simple word wrapping
-                max_width = pod.width - 10
+                max_width = (pod.width - 10) * self.zoom_scale
                 wrapped_text = self.wrap_text(pod.description, max_width, ("Arial", 8))
                 self.canvas.create_text(
-                    pod.x + offset_x, desc_y,
+                    pod.x * self.zoom_scale + offset_x, desc_y,
                     text=wrapped_text,
                     fill=pod.text_color,
                     font=("Arial", 8),
@@ -253,7 +259,7 @@ class PodsApp:
         else:
             # Draw text normally
             self.canvas.create_text(
-                pod.x + offset_x, pod.y + offset_y,
+                pod.x * self.zoom_scale + offset_x, pod.y * self.zoom_scale + offset_y,
                 text=pod.name,
                 fill=pod.text_color,
                 font=("Arial", 10),
@@ -263,7 +269,7 @@ class PodsApp:
         # Draw indicator if pod has children
         if pod.children:
             self.canvas.create_text(
-                pod.x + offset_x, y2 - 5,
+                pod.x * self.zoom_scale + offset_x, y2 - 5,
                 text="⋯",
                 fill="#7F8C8D",
                 font=("Arial", 8),
@@ -284,6 +290,12 @@ class PodsApp:
     def get_resize_handle_positions(self, pod: Pod, offset_x: float, offset_y: float):
         """Get the positions of all resize handles for a pod."""
         x1, y1, x2, y2 = pod.get_bounds()
+
+        # Apply zoom scaling
+        x1 *= self.zoom_scale
+        y1 *= self.zoom_scale
+        x2 *= self.zoom_scale
+        y2 *= self.zoom_scale
 
         # Apply offset
         x1 += offset_x
@@ -325,6 +337,12 @@ class PodsApp:
     def get_relationship_button_positions(self, pod: Pod, offset_x: float, offset_y: float):
         """Get the positions of relationship creation buttons (cardinal directions only)."""
         x1, y1, x2, y2 = pod.get_bounds()
+
+        # Apply zoom scaling
+        x1 *= self.zoom_scale
+        y1 *= self.zoom_scale
+        x2 *= self.zoom_scale
+        y2 *= self.zoom_scale
 
         # Apply offset
         x1 += offset_x
@@ -379,6 +397,12 @@ class PodsApp:
             return
 
         x1, y1, x2, y2 = rel.get_endpoints()
+
+        # Apply zoom scaling
+        x1 *= self.zoom_scale
+        y1 *= self.zoom_scale
+        x2 *= self.zoom_scale
+        y2 *= self.zoom_scale
 
         # Apply offset
         x1 += offset_x
@@ -449,9 +473,9 @@ class PodsApp:
         offset_x = canvas_width / 2 + self.pan_offset_x
         offset_y = canvas_height / 2 + self.pan_offset_y
 
-        # Convert to world coordinates
-        world_x = x - offset_x
-        world_y = y - offset_y
+        # Convert to world coordinates (accounting for zoom)
+        world_x = (x - offset_x) / self.zoom_scale
+        world_y = (y - offset_y) / self.zoom_scale
 
         # Check all pods (in reverse order to check top ones first)
         for pod in reversed(self.current_container.children):
@@ -467,9 +491,9 @@ class PodsApp:
         offset_x = canvas_width / 2 + self.pan_offset_x
         offset_y = canvas_height / 2 + self.pan_offset_y
 
-        # Convert to world coordinates
-        world_x = x - offset_x
-        world_y = y - offset_y
+        # Convert to world coordinates (accounting for zoom)
+        world_x = (x - offset_x) / self.zoom_scale
+        world_y = (y - offset_y) / self.zoom_scale
 
         # Check all relationships
         for rel in self.relationships:
@@ -484,8 +508,8 @@ class PodsApp:
             # Calculate distance from point to line segment
             distance = self.point_to_line_distance(world_x, world_y, x1, y1, x2, y2)
 
-            # If within 5 pixels of the line, consider it a hit
-            if distance < 5:
+            # If within 5 pixels of the line, consider it a hit (scale threshold by zoom)
+            if distance < 5 / self.zoom_scale:
                 return rel
 
         return None
@@ -562,9 +586,9 @@ class PodsApp:
         offset_x = canvas_width / 2 + self.pan_offset_x
         offset_y = canvas_height / 2 + self.pan_offset_y
 
-        # Convert mouse position to world coordinates
-        world_x = mouse_x - offset_x
-        world_y = mouse_y - offset_y
+        # Convert mouse position to world coordinates (accounting for zoom)
+        world_x = (mouse_x - offset_x) / self.zoom_scale
+        world_y = (mouse_y - offset_y) / self.zoom_scale
 
         # Get current bounds in world coordinates
         x1, y1, x2, y2 = self.selected_pod.get_bounds()
@@ -723,9 +747,9 @@ class PodsApp:
 
             self.render()
         elif self.dragging and self.selected_pod:
-            # Calculate drag delta
-            dx = event.x - self.drag_start_x
-            dy = event.y - self.drag_start_y
+            # Calculate drag delta (account for zoom)
+            dx = (event.x - self.drag_start_x) / self.zoom_scale
+            dy = (event.y - self.drag_start_y) / self.zoom_scale
 
             # Move pod
             self.selected_pod.move_to(
@@ -808,6 +832,40 @@ class PodsApp:
             self.relationship_source_pod = None
             self.relationship_source_direction = None
             self.canvas.config(cursor="arrow")
+            self.render()
+
+    def on_mouse_wheel(self, event):
+        """Handle mouse wheel zoom."""
+        # Determine zoom direction
+        if event.num == 5 or event.delta < 0:  # Scroll down (zoom out)
+            zoom_factor = 0.9
+        elif event.num == 4 or event.delta > 0:  # Scroll up (zoom in)
+            zoom_factor = 1.1
+        else:
+            return
+
+        # Apply zoom limits
+        new_zoom = self.zoom_scale * zoom_factor
+        if 0.1 <= new_zoom <= 5.0:  # Limit zoom between 10% and 500%
+            # Get mouse position relative to canvas
+            canvas_width = self.canvas.winfo_width()
+            canvas_height = self.canvas.winfo_height()
+
+            # Calculate world coordinates at mouse position before zoom
+            mouse_world_x = (event.x - canvas_width / 2 - self.pan_offset_x) / self.zoom_scale
+            mouse_world_y = (event.y - canvas_height / 2 - self.pan_offset_y) / self.zoom_scale
+
+            # Apply zoom
+            self.zoom_scale = new_zoom
+
+            # Calculate world coordinates at mouse position after zoom
+            new_mouse_world_x = (event.x - canvas_width / 2 - self.pan_offset_x) / self.zoom_scale
+            new_mouse_world_y = (event.y - canvas_height / 2 - self.pan_offset_y) / self.zoom_scale
+
+            # Adjust pan offset to keep mouse position fixed
+            self.pan_offset_x += (new_mouse_world_x - mouse_world_x) * self.zoom_scale
+            self.pan_offset_y += (new_mouse_world_y - mouse_world_y) * self.zoom_scale
+
             self.render()
 
     def on_canvas_right_click(self, event):
@@ -1036,9 +1094,10 @@ class PodsApp:
         self.nav_label.config(text=f"Current: {pod.name}")
         self.selected_pod = None
 
-        # Reset pan offset when entering a new container
+        # Reset pan offset and zoom when entering a new container
         self.pan_offset_x = 0
         self.pan_offset_y = 0
+        self.zoom_scale = 1.0
 
         self.render()
 
@@ -1049,9 +1108,10 @@ class PodsApp:
             self.nav_label.config(text=f"Current: {self.current_container.name}")
             self.selected_pod = None
 
-            # Reset pan offset when going back
+            # Reset pan offset and zoom when going back
             self.pan_offset_x = 0
             self.pan_offset_y = 0
+            self.zoom_scale = 1.0
 
             if not self.navigation_history:
                 self.back_button.config(state=tk.DISABLED)
@@ -1102,6 +1162,7 @@ class PodsApp:
         self.current_file_path = None
         self.pan_offset_x = 0
         self.pan_offset_y = 0
+        self.zoom_scale = 1.0
 
         # Update UI
         self.nav_label.config(text="Current: Main")
@@ -1201,6 +1262,7 @@ class PodsApp:
             self.current_file_path = file_path
             self.pan_offset_x = 0
             self.pan_offset_y = 0
+            self.zoom_scale = 1.0
 
             # Update UI
             self.nav_label.config(text="Current: Main")
