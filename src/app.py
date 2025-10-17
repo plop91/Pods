@@ -92,9 +92,9 @@ class PodsApp:
         """Create some example pods and relationships for demonstration."""
         # Create some example pods in the main container
         pod1 = Pod("Project Ideas", x=200, y=200, width=120, height=70, shape="oval")
-        pod2 = Pod("Team Members", x=450, y=200, width=120, height=70, shape="rectangle")
+        pod2 = Pod("Team Members", x=450, y=200, width=120, height=70, shape="oval")
         pod3 = Pod("Resources", x=200, y=400, width=120, height=70, shape="oval")
-        pod4 = Pod("Timeline", x=450, y=400, width=120, height=70, shape="rectangle")
+        pod4 = Pod("Timeline", x=450, y=400, width=120, height=70, shape="oval")
 
         self.main_pod.add_child(pod1)
         self.main_pod.add_child(pod2)
@@ -572,10 +572,10 @@ class PodsApp:
         self.render()
 
     def on_canvas_double_click(self, event):
-        """Handle double click - enter pod if it has children."""
+        """Handle double click - enter pod to view/create children."""
         pod = self.get_pod_at_position(event.x, event.y)
 
-        if pod and pod.children:
+        if pod:
             self.navigate_into(pod)
 
     def on_canvas_drag(self, event):
