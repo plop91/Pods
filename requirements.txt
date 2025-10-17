@@ -1,0 +1,4 @@
+# Pods - Visual Idea Organization Tool
+#
+# Tkinter is included with Python standard library, so no external dependencies required.
+# This file is included for completeness and future dependencies.
