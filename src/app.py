@@ -27,11 +27,22 @@ class PodsApp:
         # Interaction state
         self.selected_pod: Optional[Pod] = None
         self.dragging = False
+        self.panning = False
         self.resizing = False
         self.resize_handle = None  # Which handle is being dragged (e.g., "nw", "n", "ne", etc.)
         self.drag_start_x = 0
         self.drag_start_y = 0
         self.resize_handle_size = 6  # Size of resize handles in pixels
+
+        # Pan/zoom state
+        self.pan_offset_x = 0
+        self.pan_offset_y = 0
+
+        # Relationship creation state
+        self.creating_relationship = False
+        self.relationship_source_pod: Optional[Pod] = None
+        self.relationship_source_direction: Optional[str] = None  # "n", "s", "e", "w"
+        self.relationship_button_size = 10  # Size of plus buttons
 
         # Navigation history for back button
         self.navigation_history = []
@@ -74,6 +85,7 @@ class PodsApp:
         self.canvas.bind("<B1-Motion>", self.on_canvas_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_canvas_release)
         self.canvas.bind("<Motion>", self.on_canvas_motion)
+        self.root.bind("<Escape>", self.on_escape_key)
 
     def create_example_data(self):
         """Create some example pods and relationships for demonstration."""
@@ -109,9 +121,9 @@ class PodsApp:
         canvas_width = self.canvas.winfo_width()
         canvas_height = self.canvas.winfo_height()
 
-        # Calculate offset to center the view
-        offset_x = canvas_width / 2
-        offset_y = canvas_height / 2
+        # Calculate offset to center the view, including pan offset
+        offset_x = canvas_width / 2 + self.pan_offset_x
+        offset_y = canvas_height / 2 + self.pan_offset_y
 
         # Render relationships first (so they appear behind pods)
         for rel in self.relationships:
@@ -120,6 +132,21 @@ class PodsApp:
         # Render pods
         for pod in self.current_container.children:
             self.render_pod(pod, offset_x, offset_y)
+
+        # Render relationship creation indicator if in creation mode
+        if self.creating_relationship and self.relationship_source_pod:
+            # Draw a visual indicator from the source pod
+            source_x = self.relationship_source_pod.x + offset_x
+            source_y = self.relationship_source_pod.y + offset_y
+
+            # Draw instruction text
+            self.canvas.create_text(
+                offset_x, 20,
+                text="Click on a pod to create a relationship",
+                fill="#27AE60",
+                font=("Arial", 12, "bold"),
+                tags=("relationship_creation_hint",)
+            )
 
     def render_pod(self, pod: Pod, offset_x: float, offset_y: float):
         """Render a single pod on the canvas."""
@@ -182,6 +209,7 @@ class PodsApp:
         # Draw resize handles if pod is selected
         if pod.selected:
             self.render_resize_handles(pod, offset_x, offset_y)
+            self.render_relationship_buttons(pod, offset_x, offset_y)
 
     def get_resize_handle_positions(self, pod: Pod, offset_x: float, offset_y: float):
         """Get the positions of all resize handles for a pod."""
@@ -222,6 +250,54 @@ class PodsApp:
                 outline="#3498DB",
                 width=2,
                 tags=("resize_handle", f"handle_{direction}", pod.id)
+            )
+
+    def get_relationship_button_positions(self, pod: Pod, offset_x: float, offset_y: float):
+        """Get the positions of relationship creation buttons (cardinal directions only)."""
+        x1, y1, x2, y2 = pod.get_bounds()
+
+        # Apply offset
+        x1 += offset_x
+        y1 += offset_y
+        x2 += offset_x
+        y2 += offset_y
+
+        cx = (x1 + x2) / 2  # Center X
+        cy = (y1 + y2) / 2  # Center Y
+
+        # Distance to place buttons outside the pod border
+        button_offset = 20
+
+        # Return button positions: {direction: (x, y)}
+        return {
+            "n": (cx, y1 - button_offset),       # North
+            "e": (x2 + button_offset, cy),       # East
+            "s": (cx, y2 + button_offset),       # South
+            "w": (x1 - button_offset, cy),       # West
+        }
+
+    def render_relationship_buttons(self, pod: Pod, offset_x: float, offset_y: float):
+        """Render plus buttons for creating relationships at cardinal directions."""
+        buttons = self.get_relationship_button_positions(pod, offset_x, offset_y)
+        half_size = self.relationship_button_size / 2
+
+        for direction, (bx, by) in buttons.items():
+            # Draw circle background
+            self.canvas.create_oval(
+                bx - half_size, by - half_size,
+                bx + half_size, by + half_size,
+                fill="#27AE60",
+                outline="#1E8449",
+                width=1,
+                tags=("rel_button", f"rel_btn_{direction}", pod.id)
+            )
+            # Draw plus sign
+            self.canvas.create_text(
+                bx, by,
+                text="+",
+                fill="white",
+                font=("Arial", 10, "bold"),
+                tags=("rel_button", f"rel_btn_{direction}", pod.id)
             )
 
     def render_relationship(self, rel: Relationship, offset_x: float, offset_y: float):
@@ -266,8 +342,8 @@ class PodsApp:
         """Find the pod at the given canvas position."""
         canvas_width = self.canvas.winfo_width()
         canvas_height = self.canvas.winfo_height()
-        offset_x = canvas_width / 2
-        offset_y = canvas_height / 2
+        offset_x = canvas_width / 2 + self.pan_offset_x
+        offset_y = canvas_height / 2 + self.pan_offset_y
 
         # Convert to world coordinates
         world_x = x - offset_x
@@ -287,8 +363,8 @@ class PodsApp:
 
         canvas_width = self.canvas.winfo_width()
         canvas_height = self.canvas.winfo_height()
-        offset_x = canvas_width / 2
-        offset_y = canvas_height / 2
+        offset_x = canvas_width / 2 + self.pan_offset_x
+        offset_y = canvas_height / 2 + self.pan_offset_y
 
         handles = self.get_resize_handle_positions(pod, offset_x, offset_y)
         half_size = self.resize_handle_size / 2
@@ -301,6 +377,28 @@ class PodsApp:
 
         return None
 
+    def get_relationship_button_at_position(self, x: float, y: float, pod: Pod) -> Optional[str]:
+        """Check if position is over a relationship button. Returns button direction or None."""
+        if not pod.selected:
+            return None
+
+        canvas_width = self.canvas.winfo_width()
+        canvas_height = self.canvas.winfo_height()
+        offset_x = canvas_width / 2 + self.pan_offset_x
+        offset_y = canvas_height / 2 + self.pan_offset_y
+
+        buttons = self.get_relationship_button_positions(pod, offset_x, offset_y)
+        half_size = self.relationship_button_size / 2
+
+        # Check each button
+        for direction, (bx, by) in buttons.items():
+            # Use circular hit detection
+            distance = math.sqrt((x - bx) ** 2 + (y - by) ** 2)
+            if distance <= half_size:
+                return direction
+
+        return None
+
     def resize_pod(self, mouse_x: float, mouse_y: float):
         """Resize the selected pod based on the resize handle being dragged."""
         if not self.selected_pod or not self.resize_handle:
@@ -308,8 +406,8 @@ class PodsApp:
 
         canvas_width = self.canvas.winfo_width()
         canvas_height = self.canvas.winfo_height()
-        offset_x = canvas_width / 2
-        offset_y = canvas_height / 2
+        offset_x = canvas_width / 2 + self.pan_offset_x
+        offset_y = canvas_height / 2 + self.pan_offset_y
 
         # Convert mouse position to world coordinates
         world_x = mouse_x - offset_x
@@ -364,8 +462,39 @@ class PodsApp:
 
     def on_canvas_click(self, event):
         """Handle single click on canvas."""
-        # Check if clicking on a resize handle of the selected pod
+        # If in relationship creation mode, complete the relationship
+        if self.creating_relationship:
+            target_pod = self.get_pod_at_position(event.x, event.y)
+            if target_pod and target_pod != self.relationship_source_pod:
+                # Create the relationship
+                new_rel = Relationship(
+                    self.relationship_source_pod,
+                    target_pod,
+                    label="",
+                    relationship_type="default"
+                )
+                self.relationships.append(new_rel)
+
+            # Exit relationship creation mode
+            self.creating_relationship = False
+            self.relationship_source_pod = None
+            self.relationship_source_direction = None
+            self.canvas.config(cursor="arrow")
+            self.render()
+            return
+
+        # Check if clicking on a relationship button of the selected pod
         if self.selected_pod:
+            rel_button = self.get_relationship_button_at_position(event.x, event.y, self.selected_pod)
+            if rel_button:
+                # Start relationship creation mode
+                self.creating_relationship = True
+                self.relationship_source_pod = self.selected_pod
+                self.relationship_source_direction = rel_button
+                self.canvas.config(cursor="crosshair")
+                return
+
+            # Check if clicking on a resize handle of the selected pod
             handle = self.get_resize_handle_at_position(event.x, event.y, self.selected_pod)
             if handle:
                 # Start resizing
@@ -388,7 +517,12 @@ class PodsApp:
             self.drag_start_x = event.x
             self.drag_start_y = event.y
         else:
+            # Clicking on empty space - start panning
             self.selected_pod = None
+            self.panning = True
+            self.drag_start_x = event.x
+            self.drag_start_y = event.y
+            self.canvas.config(cursor="fleur")  # Hand/move cursor
 
         self.render()
 
@@ -400,10 +534,28 @@ class PodsApp:
             self.navigate_into(pod)
 
     def on_canvas_drag(self, event):
-        """Handle dragging a pod or resizing."""
+        """Handle dragging a pod, panning, or resizing."""
+        # Don't allow dragging when in relationship creation mode
+        if self.creating_relationship:
+            return
+
         if self.resizing and self.selected_pod and self.resize_handle:
             # Handle resizing
             self.resize_pod(event.x, event.y)
+            self.render()
+        elif self.panning:
+            # Handle panning
+            dx = event.x - self.drag_start_x
+            dy = event.y - self.drag_start_y
+
+            # Update pan offset
+            self.pan_offset_x += dx
+            self.pan_offset_y += dy
+
+            # Update drag start position
+            self.drag_start_x = event.x
+            self.drag_start_y = event.y
+
             self.render()
         elif self.dragging and self.selected_pod:
             # Calculate drag delta
@@ -425,11 +577,31 @@ class PodsApp:
     def on_canvas_release(self, event):
         """Handle mouse button release."""
         self.dragging = False
+        self.panning = False
         self.resizing = False
         self.resize_handle = None
 
+        # Reset cursor if we were panning
+        if not self.creating_relationship:
+            self.canvas.config(cursor="arrow")
+
     def on_canvas_motion(self, event):
         """Handle mouse motion for hover effects and cursor updates."""
+        # Don't change cursor during relationship creation mode (it's set to crosshair)
+        if self.creating_relationship:
+            # Highlight pods when hovering in relationship creation mode
+            pod = self.get_pod_at_position(event.x, event.y)
+            changed = False
+            for p in self.current_container.children:
+                old_hover = p.hovered
+                # Hover only if it's a different pod from the source
+                p.hovered = (p == pod and p != self.relationship_source_pod)
+                if old_hover != p.hovered:
+                    changed = True
+            if changed:
+                self.render()
+            return
+
         # Check if hovering over a resize handle
         if self.selected_pod:
             handle = self.get_resize_handle_at_position(event.x, event.y, self.selected_pod)
@@ -464,6 +636,15 @@ class PodsApp:
         if changed:
             self.render()
 
+    def on_escape_key(self, event):
+        """Handle escape key press - cancel relationship creation."""
+        if self.creating_relationship:
+            self.creating_relationship = False
+            self.relationship_source_pod = None
+            self.relationship_source_direction = None
+            self.canvas.config(cursor="arrow")
+            self.render()
+
     def navigate_into(self, pod: Pod):
         """Navigate into a pod, making it the current container."""
         self.navigation_history.append(self.current_container)
@@ -471,6 +652,11 @@ class PodsApp:
         self.back_button.config(state=tk.NORMAL)
         self.nav_label.config(text=f"Current: {pod.name}")
         self.selected_pod = None
+
+        # Reset pan offset when entering a new container
+        self.pan_offset_x = 0
+        self.pan_offset_y = 0
+
         self.render()
 
     def navigate_back(self):
@@ -479,6 +665,10 @@ class PodsApp:
             self.current_container = self.navigation_history.pop()
             self.nav_label.config(text=f"Current: {self.current_container.name}")
             self.selected_pod = None
+
+            # Reset pan offset when going back
+            self.pan_offset_x = 0
+            self.pan_offset_y = 0
 
             if not self.navigation_history:
                 self.back_button.config(state=tk.DISABLED)
