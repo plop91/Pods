@@ -46,6 +46,7 @@ class PodsApp:
         self.relationship_source_pod: Optional[Pod] = None
         self.relationship_source_direction: Optional[str] = None  # "n", "s", "e", "w"
         self.relationship_button_size = 10  # Size of plus buttons
+        self.external_link_zone_width = 40  # Width of the external link zone on right side
 
         # Navigation history for back button
         self.navigation_history = []
@@ -174,6 +175,9 @@ class PodsApp:
                 tags=("relationship_creation_hint",)
             )
 
+            # Draw external link zone on the right side
+            self.render_external_link_zone(canvas_width, canvas_height)
+
     def render_pod(self, pod: Pod, offset_x: float, offset_y: float):
         """Render a single pod on the canvas."""
         x1, y1, x2, y2 = pod.get_bounds()
@@ -287,6 +291,44 @@ class PodsApp:
         # This could be enhanced with proper text measurement
         return text
 
+    def render_external_link_zone(self, canvas_width: float, canvas_height: float):
+        """Render the external link zone on the right side of the canvas."""
+        zone_x = canvas_width - self.external_link_zone_width
+
+        # Draw the zone background
+        self.canvas.create_rectangle(
+            zone_x, 0,
+            canvas_width, canvas_height,
+            fill="#E8F4F8",
+            outline="#3498DB",
+            width=2,
+            tags=("external_link_zone",)
+        )
+
+        # Draw icon/text in the zone
+        mid_y = canvas_height / 2
+        self.canvas.create_text(
+            zone_x + self.external_link_zone_width / 2, mid_y - 20,
+            text="Link to",
+            fill="#2C3E50",
+            font=("Arial", 9, "bold"),
+            tags=("external_link_zone",)
+        )
+        self.canvas.create_text(
+            zone_x + self.external_link_zone_width / 2, mid_y,
+            text="External",
+            fill="#2C3E50",
+            font=("Arial", 9, "bold"),
+            tags=("external_link_zone",)
+        )
+        self.canvas.create_text(
+            zone_x + self.external_link_zone_width / 2, mid_y + 20,
+            text="Pod",
+            fill="#2C3E50",
+            font=("Arial", 9, "bold"),
+            tags=("external_link_zone",)
+        )
+
     def get_resize_handle_positions(self, pod: Pod, offset_x: float, offset_y: float):
         """Get the positions of all resize handles for a pod."""
         x1, y1, x2, y2 = pod.get_bounds()
@@ -390,10 +432,12 @@ class PodsApp:
 
     def render_relationship(self, rel: Relationship, offset_x: float, offset_y: float):
         """Render a relationship line between pods."""
-        # Only render if both pods are in the current container
-        if (rel.source.parent != self.current_container and rel.source != self.current_container):
-            return
-        if (rel.target.parent != self.current_container and rel.target != self.current_container):
+        # Check if source is in current container
+        source_in_container = (rel.source.parent == self.current_container or rel.source == self.current_container)
+        target_in_container = (rel.target.parent == self.current_container or rel.target == self.current_container)
+
+        # Only render if at least one end is in the current container
+        if not source_in_container and not target_in_container:
             return
 
         x1, y1, x2, y2 = rel.get_endpoints()
@@ -409,6 +453,39 @@ class PodsApp:
         y1 += offset_y
         x2 += offset_x
         y2 += offset_y
+
+        # If target is external, draw line to edge of canvas
+        if not target_in_container:
+            canvas_width = self.canvas.winfo_width()
+            canvas_height = self.canvas.winfo_height()
+
+            # Calculate direction vector
+            dx = x2 - x1
+            dy = y2 - y1
+
+            # Find intersection with canvas edge
+            # Check right edge first (most common for external links)
+            if dx > 0:
+                t = (canvas_width - self.external_link_zone_width - x1) / dx if dx != 0 else float('inf')
+                if 0 < t < 1:
+                    x2 = canvas_width - self.external_link_zone_width
+                    y2 = y1 + t * dy
+
+        # If source is external (less common but possible)
+        if not source_in_container:
+            canvas_width = self.canvas.winfo_width()
+            canvas_height = self.canvas.winfo_height()
+
+            # Calculate direction vector
+            dx = x1 - x2
+            dy = y1 - y2
+
+            # Find intersection with canvas edge
+            if dx > 0:
+                t = (canvas_width - self.external_link_zone_width - x2) / dx if dx != 0 else float('inf')
+                if 0 < t < 1:
+                    x1 = canvas_width - self.external_link_zone_width
+                    y1 = y2 + t * dy
 
         # Draw line
         color = "#3498DB" if rel.selected else rel.color
@@ -641,6 +718,14 @@ class PodsApp:
         """Handle single click on canvas."""
         # If in relationship creation mode, complete the relationship
         if self.creating_relationship:
+            # Check if clicking in external link zone
+            canvas_width = self.canvas.winfo_width()
+            zone_x = canvas_width - self.external_link_zone_width
+            if event.x >= zone_x:
+                # Show external pod selector
+                self.show_external_pod_selector()
+                return
+
             target_pod = self.get_pod_at_position(event.x, event.y)
             if target_pod and target_pod != self.relationship_source_pod:
                 # Create the relationship
@@ -1084,6 +1169,95 @@ class PodsApp:
         tk.Button(button_frame, text="Save", command=save_description, width=10).pack(side=tk.LEFT, padx=5)
         tk.Button(button_frame, text="Cancel", command=cancel, width=10).pack(side=tk.LEFT, padx=5)
 
+        dialog.bind("<Escape>", lambda e: cancel())
+
+    def show_external_pod_selector(self):
+        """Show dialog to select an external pod for creating a relationship."""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Select External Pod")
+        dialog.geometry("400x500")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        # Center the dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
+        y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+
+        tk.Label(dialog, text="Select a pod to link to:", font=("Arial", 10, "bold")).pack(pady=(10, 5))
+
+        # Create a frame with scrollbar for the pod list
+        list_frame = tk.Frame(dialog)
+        list_frame.pack(padx=10, pady=5, fill=tk.BOTH, expand=True)
+
+        scrollbar = tk.Scrollbar(list_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Create listbox
+        pod_listbox = tk.Listbox(list_frame, yscrollcommand=scrollbar.set, font=("Arial", 10))
+        pod_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=pod_listbox.yview)
+
+        # Collect all pods with their paths
+        pod_list = []
+        def collect_pods(pod: Pod, path: str = ""):
+            current_path = f"{path}/{pod.name}" if path else pod.name
+            if pod != self.main_pod:  # Don't include the main pod itself
+                pod_list.append((pod, current_path))
+            for child in pod.children:
+                collect_pods(child, current_path)
+
+        collect_pods(self.main_pod)
+
+        # Sort by path for better organization
+        pod_list.sort(key=lambda x: x[1])
+
+        # Populate listbox
+        for pod, path in pod_list:
+            # Don't allow linking to self
+            if pod != self.relationship_source_pod:
+                display_text = path
+                pod_listbox.insert(tk.END, display_text)
+
+        # Store pod references
+        pod_objects = [pod for pod, path in pod_list if pod != self.relationship_source_pod]
+
+        def on_select():
+            selection = pod_listbox.curselection()
+            if selection:
+                idx = selection[0]
+                target_pod = pod_objects[idx]
+
+                # Create the relationship
+                new_rel = Relationship(
+                    self.relationship_source_pod,
+                    target_pod,
+                    label="",
+                    relationship_type="default"
+                )
+                self.relationships.append(new_rel)
+
+                # Exit relationship creation mode
+                self.creating_relationship = False
+                self.relationship_source_pod = None
+                self.relationship_source_direction = None
+                self.canvas.config(cursor="arrow")
+
+                dialog.destroy()
+                self.render()
+
+        def cancel():
+            dialog.destroy()
+
+        # Buttons
+        button_frame = tk.Frame(dialog)
+        button_frame.pack(pady=10)
+        tk.Button(button_frame, text="Link", command=on_select, width=10).pack(side=tk.LEFT, padx=5)
+        tk.Button(button_frame, text="Cancel", command=cancel, width=10).pack(side=tk.LEFT, padx=5)
+
+        # Double-click to select
+        pod_listbox.bind("<Double-Button-1>", lambda e: on_select())
         dialog.bind("<Escape>", lambda e: cancel())
 
     def navigate_into(self, pod: Pod):
