@@ -22,6 +22,7 @@ class Relationship:
         self.target = target_pod
         self.label = label
         self.relationship_type = relationship_type
+        self.description = ""
 
         # Visual properties
         self.color = "#34495E"

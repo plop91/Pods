@@ -26,6 +26,7 @@ class PodsApp:
 
         # Interaction state
         self.selected_pod: Optional[Pod] = None
+        self.selected_relationship: Optional[Relationship] = None
         self.dragging = False
         self.panning = False
         self.resizing = False
@@ -363,23 +364,57 @@ class PodsApp:
 
         # Draw line
         color = "#3498DB" if rel.selected else rel.color
+        width = rel.line_width + 1 if rel.selected else rel.line_width
         self.canvas.create_line(
             x1, y1, x2, y2,
             fill=color,
-            width=rel.line_width,
+            width=width,
             arrow=tk.LAST if rel.arrow else None,
             tags=("relationship", rel.id)
         )
 
+        # Calculate midpoint for labels
+        mid_x = (x1 + x2) / 2
+        mid_y = (y1 + y2) / 2
+
         # Draw label if present
         if rel.label:
-            mid_x = (x1 + x2) / 2
-            mid_y = (y1 + y2) / 2
             self.canvas.create_text(
                 mid_x, mid_y - 10,
                 text=rel.label,
-                fill="#7F8C8D",
+                fill="#2C3E50" if rel.selected else "#7F8C8D",
+                font=("Arial", 8, "bold" if rel.selected else "normal"),
+                tags=("relationship", rel.id)
+            )
+
+        # Draw description if selected and present
+        if rel.selected and rel.description:
+            # Draw description box below the label
+            desc_y_offset = 10 if rel.label else 5
+
+            # Create a semi-transparent background for the description
+            desc_lines = rel.description.split('\n')
+            max_line_length = max(len(line) for line in desc_lines) if desc_lines else 0
+            box_width = min(max_line_length * 6, 200)  # Approximate width
+            box_height = len(desc_lines) * 12 + 10
+
+            # Draw background box
+            self.canvas.create_rectangle(
+                mid_x - box_width / 2, mid_y + desc_y_offset,
+                mid_x + box_width / 2, mid_y + desc_y_offset + box_height,
+                fill="#ECF0F1",
+                outline="#3498DB",
+                width=1,
+                tags=("relationship", rel.id)
+            )
+
+            # Draw description text
+            self.canvas.create_text(
+                mid_x, mid_y + desc_y_offset + box_height / 2,
+                text=rel.description,
+                fill="#2C3E50",
                 font=("Arial", 8),
+                width=box_width - 10,
                 tags=("relationship", rel.id)
             )
 
@@ -400,6 +435,55 @@ class PodsApp:
                 return pod
 
         return None
+
+    def get_relationship_at_position(self, x: float, y: float) -> Optional[Relationship]:
+        """Find the relationship at the given canvas position."""
+        canvas_width = self.canvas.winfo_width()
+        canvas_height = self.canvas.winfo_height()
+        offset_x = canvas_width / 2 + self.pan_offset_x
+        offset_y = canvas_height / 2 + self.pan_offset_y
+
+        # Convert to world coordinates
+        world_x = x - offset_x
+        world_y = y - offset_y
+
+        # Check all relationships
+        for rel in self.relationships:
+            # Only check relationships in the current container
+            if (rel.source.parent != self.current_container and rel.source != self.current_container):
+                continue
+            if (rel.target.parent != self.current_container and rel.target != self.current_container):
+                continue
+
+            x1, y1, x2, y2 = rel.get_endpoints()
+
+            # Calculate distance from point to line segment
+            distance = self.point_to_line_distance(world_x, world_y, x1, y1, x2, y2)
+
+            # If within 5 pixels of the line, consider it a hit
+            if distance < 5:
+                return rel
+
+        return None
+
+    def point_to_line_distance(self, px: float, py: float, x1: float, y1: float, x2: float, y2: float) -> float:
+        """Calculate the distance from a point to a line segment."""
+        # Calculate line length squared
+        line_length_sq = (x2 - x1) ** 2 + (y2 - y1) ** 2
+
+        if line_length_sq == 0:
+            # Line is actually a point
+            return math.sqrt((px - x1) ** 2 + (py - y1) ** 2)
+
+        # Calculate projection of point onto line (clamped to segment)
+        t = max(0, min(1, ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / line_length_sq))
+
+        # Find closest point on line segment
+        closest_x = x1 + t * (x2 - x1)
+        closest_y = y1 + t * (y2 - y1)
+
+        # Return distance from point to closest point on segment
+        return math.sqrt((px - closest_x) ** 2 + (py - closest_y) ** 2)
 
     def get_resize_handle_at_position(self, x: float, y: float, pod: Pod) -> Optional[str]:
         """Check if position is over a resize handle. Returns handle direction or None."""
@@ -551,9 +635,14 @@ class PodsApp:
 
         pod = self.get_pod_at_position(event.x, event.y)
 
-        # Deselect previous selection
+        # Deselect previous pod selection
         if self.selected_pod:
             self.selected_pod.selected = False
+
+        # Deselect previous relationship selection
+        if self.selected_relationship:
+            self.selected_relationship.selected = False
+            self.selected_relationship = None
 
         if pod:
             pod.selected = True
@@ -562,12 +651,19 @@ class PodsApp:
             self.drag_start_x = event.x
             self.drag_start_y = event.y
         else:
-            # Clicking on empty space - start panning
-            self.selected_pod = None
-            self.panning = True
-            self.drag_start_x = event.x
-            self.drag_start_y = event.y
-            self.canvas.config(cursor="fleur")  # Hand/move cursor
+            # Check if clicking on a relationship
+            relationship = self.get_relationship_at_position(event.x, event.y)
+            if relationship:
+                relationship.selected = True
+                self.selected_relationship = relationship
+                self.selected_pod = None
+            else:
+                # Clicking on empty space - start panning
+                self.selected_pod = None
+                self.panning = True
+                self.drag_start_x = event.x
+                self.drag_start_y = event.y
+                self.canvas.config(cursor="fleur")  # Hand/move cursor
 
         self.render()
 
@@ -691,11 +787,11 @@ class PodsApp:
             self.render()
 
     def on_canvas_right_click(self, event):
-        """Handle right-click on canvas - show context menu for pods."""
+        """Handle right-click on canvas - show context menu for pods or relationships."""
         pod = self.get_pod_at_position(event.x, event.y)
 
         if pod:
-            # Create context menu
+            # Create context menu for pods
             menu = tk.Menu(self.root, tearoff=0)
             menu.add_command(label="Edit Name", command=lambda: self.edit_pod_name(pod))
             menu.add_separator()
@@ -716,6 +812,20 @@ class PodsApp:
                 menu.tk_popup(event.x_root, event.y_root)
             finally:
                 menu.grab_release()
+        else:
+            # Check if right-clicking on a relationship
+            relationship = self.get_relationship_at_position(event.x, event.y)
+            if relationship:
+                # Create context menu for relationships
+                menu = tk.Menu(self.root, tearoff=0)
+                menu.add_command(label="Edit Label", command=lambda: self.edit_relationship_label(relationship))
+                menu.add_command(label="Edit Description", command=lambda: self.edit_relationship_description(relationship))
+
+                # Display menu at cursor position
+                try:
+                    menu.tk_popup(event.x_root, event.y_root)
+                finally:
+                    menu.grab_release()
 
     def edit_pod_name(self, pod: Pod):
         """Open dialog to edit pod name."""
@@ -809,6 +919,90 @@ class PodsApp:
             self.edit_pod_description(pod)
         else:
             self.render()
+
+    def edit_relationship_label(self, relationship: Relationship):
+        """Open dialog to edit relationship label."""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Edit Relationship Label")
+        dialog.geometry("400x120")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        # Center the dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
+        y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+
+        # Label entry
+        tk.Label(dialog, text="Relationship Label:").pack(pady=(10, 5))
+        label_entry = tk.Entry(dialog, width=40)
+        label_entry.insert(0, relationship.label)
+        label_entry.pack(pady=5)
+        label_entry.focus()
+        label_entry.select_range(0, tk.END)
+
+        def save_label():
+            relationship.label = label_entry.get()
+            dialog.destroy()
+            self.render()
+
+        def cancel():
+            dialog.destroy()
+
+        # Buttons
+        button_frame = tk.Frame(dialog)
+        button_frame.pack(pady=10)
+        tk.Button(button_frame, text="Save", command=save_label, width=10).pack(side=tk.LEFT, padx=5)
+        tk.Button(button_frame, text="Cancel", command=cancel, width=10).pack(side=tk.LEFT, padx=5)
+
+        # Bind Enter key to save
+        label_entry.bind("<Return>", lambda e: save_label())
+        dialog.bind("<Escape>", lambda e: cancel())
+
+    def edit_relationship_description(self, relationship: Relationship):
+        """Open dialog to edit relationship description."""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Edit Relationship Description")
+        dialog.geometry("500x300")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        # Center the dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
+        y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+
+        # Description text area
+        tk.Label(dialog, text="Description (visible when relationship is selected):").pack(pady=(10, 5))
+        text_frame = tk.Frame(dialog)
+        text_frame.pack(padx=10, pady=5, fill=tk.BOTH, expand=True)
+
+        scrollbar = tk.Scrollbar(text_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        desc_text = tk.Text(text_frame, width=60, height=10, yscrollcommand=scrollbar.set, wrap=tk.WORD)
+        desc_text.insert("1.0", relationship.description)
+        desc_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=desc_text.yview)
+        desc_text.focus()
+
+        def save_description():
+            relationship.description = desc_text.get("1.0", tk.END).strip()
+            dialog.destroy()
+            self.render()
+
+        def cancel():
+            dialog.destroy()
+
+        # Buttons
+        button_frame = tk.Frame(dialog)
+        button_frame.pack(pady=10)
+        tk.Button(button_frame, text="Save", command=save_description, width=10).pack(side=tk.LEFT, padx=5)
+        tk.Button(button_frame, text="Cancel", command=cancel, width=10).pack(side=tk.LEFT, padx=5)
+
+        dialog.bind("<Escape>", lambda e: cancel())
 
     def navigate_into(self, pod: Pod):
         """Navigate into a pod, making it the current container."""
