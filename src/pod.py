@@ -75,5 +75,49 @@ class Pod:
         self.x = x
         self.y = y
 
+    def to_dict(self) -> dict:
+        """Serialize pod to dictionary."""
+        return {
+            "id": self.id,
+            "name": self.name,
+            "x": self.x,
+            "y": self.y,
+            "width": self.width,
+            "height": self.height,
+            "shape": self.shape,
+            "description": self.description,
+            "has_description": self.has_description,
+            "color": self.color,
+            "border_color": self.border_color,
+            "text_color": self.text_color,
+            "children": [child.to_dict() for child in self.children]
+        }
+
+    @staticmethod
+    def from_dict(data: dict, parent: Optional['Pod'] = None) -> 'Pod':
+        """Deserialize pod from dictionary."""
+        pod = Pod(
+            name=data["name"],
+            x=data["x"],
+            y=data["y"],
+            width=data["width"],
+            height=data["height"],
+            shape=data["shape"],
+            parent=parent
+        )
+        pod.id = data["id"]
+        pod.description = data.get("description", "")
+        pod.has_description = data.get("has_description", False)
+        pod.color = data.get("color", "#E8F4F8")
+        pod.border_color = data.get("border_color", "#2C3E50")
+        pod.text_color = data.get("text_color", "#2C3E50")
+
+        # Recursively load children
+        for child_data in data.get("children", []):
+            child = Pod.from_dict(child_data, parent=pod)
+            pod.children.append(child)
+
+        return pod
+
     def __repr__(self):
         return f"Pod(name='{self.name}', x={self.x}, y={self.y}, children={len(self.children)})"

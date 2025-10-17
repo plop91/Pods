@@ -54,5 +54,44 @@ class Relationship:
             self.target.x, self.target.y
         )
 
+    def to_dict(self) -> dict:
+        """Serialize relationship to dictionary."""
+        return {
+            "id": self.id,
+            "source_id": self.source.id,
+            "target_id": self.target.id,
+            "label": self.label,
+            "relationship_type": self.relationship_type,
+            "description": self.description,
+            "color": self.color,
+            "line_width": self.line_width,
+            "arrow": self.arrow
+        }
+
+    @staticmethod
+    def from_dict(data: dict, pod_lookup: dict) -> 'Relationship':
+        """Deserialize relationship from dictionary.
+
+        Args:
+            data: Dictionary containing relationship data
+            pod_lookup: Dictionary mapping pod IDs to Pod objects
+        """
+        source_pod = pod_lookup[data["source_id"]]
+        target_pod = pod_lookup[data["target_id"]]
+
+        rel = Relationship(
+            source_pod=source_pod,
+            target_pod=target_pod,
+            label=data.get("label", ""),
+            relationship_type=data.get("relationship_type", "default")
+        )
+        rel.id = data["id"]
+        rel.description = data.get("description", "")
+        rel.color = data.get("color", "#34495E")
+        rel.line_width = data.get("line_width", 2)
+        rel.arrow = data.get("arrow", True)
+
+        return rel
+
     def __repr__(self):
         return f"Relationship('{self.source.name}' -> '{self.target.name}', label='{self.label}')"

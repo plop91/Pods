@@ -35,3 +35,6 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+
+# Project files (can be removed if you want to track them)
+# *.json

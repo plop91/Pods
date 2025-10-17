@@ -1,9 +1,10 @@
 """Main application window with canvas and interaction handling."""
 
 import tkinter as tk
-from tkinter import ttk
-from typing import List, Optional
+from tkinter import ttk, filedialog, messagebox
+from typing import List, Optional, Dict
 import math
+import json
 
 from .pod import Pod
 from .relationship import Relationship
@@ -48,6 +49,9 @@ class PodsApp:
         # Navigation history for back button
         self.navigation_history = []
 
+        # Current file path for save/load
+        self.current_file_path: Optional[str] = None
+
         # Setup UI
         self.setup_ui()
 
@@ -59,6 +63,26 @@ class PodsApp:
 
     def setup_ui(self):
         """Setup the user interface."""
+        # Menu bar
+        menubar = tk.Menu(self.root)
+        self.root.config(menu=menubar)
+
+        # File menu
+        file_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="File", menu=file_menu)
+        file_menu.add_command(label="New Project", command=self.new_project, accelerator="Ctrl+N")
+        file_menu.add_command(label="Open...", command=self.load_project, accelerator="Ctrl+O")
+        file_menu.add_command(label="Save", command=self.save_project, accelerator="Ctrl+S")
+        file_menu.add_command(label="Save As...", command=self.save_project_as, accelerator="Ctrl+Shift+S")
+        file_menu.add_separator()
+        file_menu.add_command(label="Exit", command=self.root.quit)
+
+        # Bind keyboard shortcuts
+        self.root.bind("<Control-n>", lambda e: self.new_project())
+        self.root.bind("<Control-o>", lambda e: self.load_project())
+        self.root.bind("<Control-s>", lambda e: self.save_project())
+        self.root.bind("<Control-Shift-S>", lambda e: self.save_project_as())
+
         # Top toolbar
         toolbar = ttk.Frame(self.root, padding="5")
         toolbar.pack(side=tk.TOP, fill=tk.X)
@@ -1050,3 +1074,146 @@ class PodsApp:
 
         self.current_container.add_child(new_pod)
         self.render()
+
+    def build_pod_lookup(self, pod: Pod, lookup: Dict[str, Pod]):
+        """Recursively build a lookup dictionary of pod ID -> pod object."""
+        lookup[pod.id] = pod
+        for child in pod.children:
+            self.build_pod_lookup(child, lookup)
+
+    def new_project(self):
+        """Create a new empty project."""
+        # Confirm if there are unsaved changes
+        if self.main_pod.children or self.relationships:
+            response = messagebox.askyesno(
+                "New Project",
+                "Are you sure you want to create a new project? Any unsaved changes will be lost."
+            )
+            if not response:
+                return
+
+        # Reset to empty project
+        self.main_pod = Pod("Main", x=0, y=0, width=0, height=0)
+        self.current_container = self.main_pod
+        self.relationships = []
+        self.navigation_history = []
+        self.selected_pod = None
+        self.selected_relationship = None
+        self.current_file_path = None
+        self.pan_offset_x = 0
+        self.pan_offset_y = 0
+
+        # Update UI
+        self.nav_label.config(text="Current: Main")
+        self.back_button.config(state=tk.DISABLED)
+        self.root.title("Pods - Visual Idea Organization")
+
+        self.render()
+
+    def save_project_as(self):
+        """Save the project to a new file."""
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".json",
+            filetypes=[("Pods Project", "*.json"), ("All Files", "*.*")],
+            title="Save Project As"
+        )
+
+        if file_path:
+            self.current_file_path = file_path
+            self._save_to_file(file_path)
+
+    def save_project(self):
+        """Save the project to the current file, or prompt for location if new."""
+        if self.current_file_path:
+            self._save_to_file(self.current_file_path)
+        else:
+            self.save_project_as()
+
+    def _save_to_file(self, file_path: str):
+        """Internal method to save project to a specific file."""
+        try:
+            # Build the project data structure
+            project_data = {
+                "version": "1.0",
+                "main_pod": self.main_pod.to_dict(),
+                "relationships": [rel.to_dict() for rel in self.relationships]
+            }
+
+            # Write to file
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(project_data, f, indent=2)
+
+            # Update window title
+            import os
+            filename = os.path.basename(file_path)
+            self.root.title(f"Pods - {filename}")
+
+            messagebox.showinfo("Save Successful", f"Project saved to {file_path}")
+
+        except Exception as e:
+            messagebox.showerror("Save Error", f"Failed to save project:\n{str(e)}")
+
+    def load_project(self):
+        """Load a project from a file."""
+        # Confirm if there are unsaved changes
+        if self.main_pod.children or self.relationships:
+            response = messagebox.askyesno(
+                "Load Project",
+                "Are you sure you want to load a project? Any unsaved changes will be lost."
+            )
+            if not response:
+                return
+
+        file_path = filedialog.askopenfilename(
+            defaultextension=".json",
+            filetypes=[("Pods Project", "*.json"), ("All Files", "*.*")],
+            title="Open Project"
+        )
+
+        if file_path:
+            self._load_from_file(file_path)
+
+    def _load_from_file(self, file_path: str):
+        """Internal method to load project from a specific file."""
+        try:
+            # Read from file
+            with open(file_path, 'r', encoding='utf-8') as f:
+                project_data = json.load(f)
+
+            # Deserialize main pod
+            self.main_pod = Pod.from_dict(project_data["main_pod"])
+
+            # Build pod lookup dictionary
+            pod_lookup: Dict[str, Pod] = {}
+            self.build_pod_lookup(self.main_pod, pod_lookup)
+
+            # Deserialize relationships
+            self.relationships = [
+                Relationship.from_dict(rel_data, pod_lookup)
+                for rel_data in project_data.get("relationships", [])
+            ]
+
+            # Reset state
+            self.current_container = self.main_pod
+            self.navigation_history = []
+            self.selected_pod = None
+            self.selected_relationship = None
+            self.current_file_path = file_path
+            self.pan_offset_x = 0
+            self.pan_offset_y = 0
+
+            # Update UI
+            self.nav_label.config(text="Current: Main")
+            self.back_button.config(state=tk.DISABLED)
+
+            # Update window title
+            import os
+            filename = os.path.basename(file_path)
+            self.root.title(f"Pods - {filename}")
+
+            self.render()
+
+            messagebox.showinfo("Load Successful", f"Project loaded from {file_path}")
+
+        except Exception as e:
+            messagebox.showerror("Load Error", f"Failed to load project:\n{str(e)}")
