@@ -9,6 +9,8 @@ import uuid
 
 from .pod import Pod
 from .relationship import Relationship
+from .persistence.file_manager import FileManager
+from .persistence.state_manager import StateManager
 
 
 class PodsApp:
@@ -56,11 +58,6 @@ class PodsApp:
         # Current file path for save/load
         self.current_file_path: Optional[str] = None
 
-        # Undo/Redo stacks
-        self.undo_stack: List[dict] = []
-        self.redo_stack: List[dict] = []
-        self.max_undo_levels = 50
-
         # Clipboard for copy/paste
         self.clipboard: Optional[dict] = None
 
@@ -98,6 +95,10 @@ class PodsApp:
         self.ghost_positions: dict = {}  # Maps (container_id, ghost_pod_id) to (x, y) world coordinates
         self.selected_ghost: Optional[Pod] = None  # Currently selected ghost pod
 
+        # Initialize managers
+        self.file_manager = FileManager(self)
+        self.state_manager = StateManager(self)
+
         # Setup UI
         self.setup_ui()
 
@@ -120,10 +121,10 @@ class PodsApp:
         # File menu
         file_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="File", menu=file_menu)
-        file_menu.add_command(label="New Project", command=self.new_project, accelerator="Ctrl+N")
-        file_menu.add_command(label="Open...", command=self.load_project, accelerator="Ctrl+O")
-        file_menu.add_command(label="Save", command=self.save_project, accelerator="Ctrl+S")
-        file_menu.add_command(label="Save As...", command=self.save_project_as, accelerator="Ctrl+Shift+S")
+        file_menu.add_command(label="New Project", command=self.file_manager.new_project, accelerator="Ctrl+N")
+        file_menu.add_command(label="Open...", command=self.file_manager.load_project, accelerator="Ctrl+O")
+        file_menu.add_command(label="Save", command=self.file_manager.save_project, accelerator="Ctrl+S")
+        file_menu.add_command(label="Save As...", command=self.file_manager.save_project_as, accelerator="Ctrl+Shift+S")
         file_menu.add_separator()
         file_menu.add_command(label="Export to PNG...", command=self.export_to_png)
         file_menu.add_separator()
@@ -139,8 +140,8 @@ class PodsApp:
         # Edit menu
         edit_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Edit", menu=edit_menu)
-        edit_menu.add_command(label="Undo", command=self.undo, accelerator="Ctrl+Z")
-        edit_menu.add_command(label="Redo", command=self.redo, accelerator="Ctrl+Y")
+        edit_menu.add_command(label="Undo", command=self.state_manager.undo, accelerator="Ctrl+Z")
+        edit_menu.add_command(label="Redo", command=self.state_manager.redo, accelerator="Ctrl+Y")
         edit_menu.add_separator()
         edit_menu.add_command(label="Copy Pod", command=self.copy_pod, accelerator="Ctrl+C")
         edit_menu.add_command(label="Paste Pod", command=self.paste_pod, accelerator="Ctrl+V")
@@ -1123,7 +1124,7 @@ class PodsApp:
             ghost_pod = self.get_ghost_pod_at_position(event.x, event.y)
             if ghost_pod and ghost_pod != self.relationship_source_pod:
                 # Save state for undo
-                self.save_state()
+                self.state_manager.save_state()
 
                 # Create the relationship to the ghost pod
                 new_rel = Relationship(
@@ -1153,7 +1154,7 @@ class PodsApp:
             target_pod = self.get_pod_at_position(event.x, event.y)
             if target_pod and target_pod != self.relationship_source_pod:
                 # Save state for undo
-                self.save_state()
+                self.state_manager.save_state()
 
                 # Create the relationship
                 new_rel = Relationship(
@@ -1381,7 +1382,7 @@ class PodsApp:
         """Handle mouse button release."""
         # Save state if we made changes (dragging or resizing)
         if (self.dragging or self.resizing) and (self.selected_pod or self.selected_ghost):
-            self.save_state()
+            self.state_manager.save_state()
 
         self.dragging = False
         self.panning = False
@@ -1602,7 +1603,7 @@ class PodsApp:
 
         def save_name():
             # Save state for undo
-            self.save_state()
+            self.state_manager.save_state()
             pod.name = name_entry.get()
             dialog.destroy()
             self.render()
@@ -1650,7 +1651,7 @@ class PodsApp:
 
         def save_description():
             # Save state for undo
-            self.save_state()
+            self.state_manager.save_state()
             pod.description = desc_text.get("1.0", tk.END).strip()
             dialog.destroy()
             self.render()
@@ -1669,7 +1670,7 @@ class PodsApp:
     def toggle_pod_description(self, pod: Pod, enabled: bool):
         """Toggle description visibility for a pod."""
         # Save state for undo
-        self.save_state()
+        self.state_manager.save_state()
         pod.has_description = enabled
         if enabled and not pod.description:
             # If enabling description for the first time, open edit dialog
@@ -1680,7 +1681,7 @@ class PodsApp:
     def set_pod_color(self, pod: Pod, color: str):
         """Set pod color to a specific color."""
         # Save state for undo
-        self.save_state()
+        self.state_manager.save_state()
 
         # Update pod color
         pod.color = color
@@ -1697,7 +1698,7 @@ class PodsApp:
 
         if color and color[1]:  # color is ((r,g,b), '#RRGGBB')
             # Save state for undo
-            self.save_state()
+            self.state_manager.save_state()
 
             # Update pod color
             pod.color = color[1]
@@ -1727,7 +1728,7 @@ class PodsApp:
 
         def save_label():
             # Save state for undo
-            self.save_state()
+            self.state_manager.save_state()
             relationship.label = label_entry.get()
             dialog.destroy()
             self.render()
@@ -1775,7 +1776,7 @@ class PodsApp:
 
         def save_description():
             # Save state for undo
-            self.save_state()
+            self.state_manager.save_state()
             relationship.description = desc_text.get("1.0", tk.END).strip()
             dialog.destroy()
             self.render()
@@ -1850,7 +1851,7 @@ class PodsApp:
                 target_pod = pod_objects[idx]
 
                 # Save state for undo
-                self.save_state()
+                self.state_manager.save_state()
 
                 # Create the relationship
                 new_rel = Relationship(
@@ -1920,7 +1921,7 @@ class PodsApp:
     def add_new_pod(self):
         """Add a new pod to the current container."""
         # Save state for undo
-        self.save_state()
+        self.state_manager.save_state()
 
         # Find a good position (offset from center)
         import random
@@ -1940,7 +1941,7 @@ class PodsApp:
     def add_pod_at_position(self, canvas_x: float, canvas_y: float, shape: str = "oval"):
         """Add a new pod at a specific canvas position."""
         # Save state for undo
-        self.save_state()
+        self.state_manager.save_state()
 
         # Convert canvas coordinates to world coordinates
         canvas_width = self.canvas.winfo_width()
@@ -1985,7 +1986,7 @@ class PodsApp:
             return
 
         # Save state for undo
-        self.save_state()
+        self.state_manager.save_state()
 
         # Remove all relationships connected to this pod
         self.relationships = [
@@ -2015,7 +2016,7 @@ class PodsApp:
             return
 
         # Save state for undo
-        self.save_state()
+        self.state_manager.save_state()
 
         # Remove relationship
         if relationship in self.relationships:
@@ -2043,7 +2044,7 @@ class PodsApp:
                     return
 
                 # Save state for undo
-                self.save_state()
+                self.state_manager.save_state()
 
                 # Delete all selected pods
                 for pod in list(self.selected_pods):  # Use list() to avoid modifying during iteration
@@ -2072,7 +2073,7 @@ class PodsApp:
             return
 
         # Save state for undo
-        self.save_state()
+        self.state_manager.save_state()
 
         # Move all selected pods
         for pod in self.selected_pods:
@@ -2105,117 +2106,6 @@ class PodsApp:
         self.copy_pod()
         self.paste_pod()
 
-    def save_state(self):
-        """Save the current state for undo/redo functionality."""
-        # Serialize ghost_positions for undo/redo (handle None case)
-        ghost_positions_copy = {}
-        if self.ghost_positions:
-            ghost_positions_copy = {
-                f"{container_id}_{ghost_id}": (x, y)
-                for (container_id, ghost_id), (x, y) in self.ghost_positions.items()
-            }
-
-        # Create a snapshot of the current state
-        state = {
-            "main_pod": self.main_pod.to_dict(),
-            "relationships": [rel.to_dict() for rel in self.relationships],
-            "current_container_id": self.current_container.id,
-            "navigation_history_ids": [pod.id for pod in self.navigation_history],
-            "ghost_positions": ghost_positions_copy
-        }
-
-        # Add to undo stack
-        self.undo_stack.append(state)
-
-        # Limit stack size
-        if len(self.undo_stack) > self.max_undo_levels:
-            self.undo_stack.pop(0)
-
-        # Clear redo stack when a new action is performed
-        self.redo_stack.clear()
-
-    def restore_state(self, state: dict):
-        """Restore a saved state."""
-        # Deserialize main pod
-        self.main_pod = Pod.from_dict(state["main_pod"])
-
-        # Build pod lookup dictionary
-        pod_lookup: Dict[str, Pod] = {}
-        self.build_pod_lookup(self.main_pod, pod_lookup)
-
-        # Deserialize relationships
-        self.relationships = [
-            Relationship.from_dict(rel_data, pod_lookup)
-            for rel_data in state.get("relationships", [])
-        ]
-
-        # Restore ghost positions
-        self.ghost_positions = {}
-        ghost_data = state.get("ghost_positions", {})
-        for key_str, (x, y) in ghost_data.items():
-            # Parse key string back to tuple
-            parts = key_str.split('_', 1)  # Split on first underscore only
-            if len(parts) == 2:
-                container_id, ghost_id = parts
-                self.ghost_positions[(container_id, ghost_id)] = (x, y)
-
-        # Restore current container
-        container_id = state.get("current_container_id")
-        self.current_container = pod_lookup.get(container_id, self.main_pod)
-
-        # Restore navigation history
-        self.navigation_history = [
-            pod_lookup[pod_id]
-            for pod_id in state.get("navigation_history_ids", [])
-            if pod_id in pod_lookup
-        ]
-
-        # Update UI
-        self.nav_label.config(text=f"Current: {self.current_container.name}")
-        self.back_button.config(state=tk.NORMAL if self.navigation_history else tk.DISABLED)
-        self.selected_pod = None
-        self.selected_pods.clear()
-        self.selected_relationship = None
-        self.selected_ghost = None
-
-        self.render()
-
-    def undo(self):
-        """Undo the last action."""
-        if not self.undo_stack:
-            return
-
-        # Save current state to redo stack before undoing
-        current_state = {
-            "main_pod": self.main_pod.to_dict(),
-            "relationships": [rel.to_dict() for rel in self.relationships],
-            "current_container_id": self.current_container.id,
-            "navigation_history_ids": [pod.id for pod in self.navigation_history]
-        }
-        self.redo_stack.append(current_state)
-
-        # Restore previous state
-        previous_state = self.undo_stack.pop()
-        self.restore_state(previous_state)
-
-    def redo(self):
-        """Redo the last undone action."""
-        if not self.redo_stack:
-            return
-
-        # Save current state to undo stack before redoing
-        current_state = {
-            "main_pod": self.main_pod.to_dict(),
-            "relationships": [rel.to_dict() for rel in self.relationships],
-            "current_container_id": self.current_container.id,
-            "navigation_history_ids": [pod.id for pod in self.navigation_history]
-        }
-        self.undo_stack.append(current_state)
-
-        # Restore next state
-        next_state = self.redo_stack.pop()
-        self.restore_state(next_state)
-
     def copy_pod(self):
         """Copy the selected pod(s) to clipboard."""
         if not self.selected_pods:
@@ -2233,7 +2123,7 @@ class PodsApp:
             return
 
         # Save state for undo
-        self.save_state()
+        self.state_manager.save_state()
 
         # Handle both old (single pod dict) and new (single/multiple) clipboard formats
         if "single" in self.clipboard:
@@ -2279,7 +2169,7 @@ class PodsApp:
             return  # Need at least 2 pods to align
 
         # Save state for undo
-        self.save_state()
+        self.state_manager.save_state()
 
         if direction == "left":
             # Align to leftmost edge
@@ -2563,14 +2453,20 @@ class PodsApp:
         """Perform autosave if a file is currently open."""
         if self.current_file_path and self.autosave_enabled:
             try:
-                # Build the project data structure
+                # Use file manager to save (without showing success message)
+                # We'll manually save the data
+                ghost_positions_serializable = {
+                    f"{container_id}_{ghost_id}": {"x": x, "y": y}
+                    for (container_id, ghost_id), (x, y) in self.ghost_positions.items()
+                }
+
                 project_data = {
                     "version": "1.0",
                     "main_pod": self.main_pod.to_dict(),
-                    "relationships": [rel.to_dict() for rel in self.relationships]
+                    "relationships": [rel.to_dict() for rel in self.relationships],
+                    "ghost_positions": ghost_positions_serializable
                 }
 
-                # Write to file
                 with open(self.current_file_path, 'w', encoding='utf-8') as f:
                     json.dump(project_data, f, indent=2)
 
@@ -2910,7 +2806,7 @@ class PodsApp:
             filename = os.path.basename(file_path)
             self.recent_files_menu.add_command(
                 label=filename,
-                command=lambda fp=file_path: self.load_project_file(fp)
+                command=lambda fp=file_path: self.file_manager.load_project_file(fp)
             )
 
         # Add separator and clear option
