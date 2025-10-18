@@ -373,8 +373,8 @@ class PodsApp:
             )
 
         # Draw text and description if enabled
-        # Use light text in dark mode for better contrast
-        text_color = "#FFFFFF" if self.dark_mode else pod.text_color
+        # Use smart contrast detection to ensure text is readable on any background
+        text_color = self.get_contrast_text_color(pod.color)
 
         if pod.has_description:
             # Calculate separator position (30% from top for name section)
@@ -425,7 +425,8 @@ class PodsApp:
 
         # Draw indicator if pod has children
         if pod.children:
-            indicator_color = "#AAAAAA" if self.dark_mode else "#7F8C8D"
+            # Use same contrast logic for indicator
+            indicator_color = self.get_contrast_text_color(pod.color)
             self.canvas.create_text(
                 pod.x * self.zoom_scale + offset_x, y2 - 5,
                 text="⋯",
@@ -444,6 +445,38 @@ class PodsApp:
         # For simplicity, just return the text - tkinter Text widget handles wrapping
         # This could be enhanced with proper text measurement
         return text
+
+    def get_luminance(self, hex_color: str) -> float:
+        """Calculate relative luminance of a color (0-1 scale).
+
+        Uses the formula from WCAG 2.0:
+        https://www.w3.org/TR/WCAG20/#relativeluminancedef
+        """
+        # Remove '#' if present
+        hex_color = hex_color.lstrip('#')
+
+        # Convert hex to RGB (0-255)
+        r = int(hex_color[0:2], 16) / 255.0
+        g = int(hex_color[2:4], 16) / 255.0
+        b = int(hex_color[4:6], 16) / 255.0
+
+        # Apply gamma correction
+        def adjust(c):
+            return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
+        r, g, b = adjust(r), adjust(g), adjust(b)
+
+        # Calculate luminance
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+    def get_contrast_text_color(self, bg_color: str) -> str:
+        """Return black or white text color based on background luminance.
+
+        Returns white text for dark backgrounds, black for light backgrounds.
+        """
+        luminance = self.get_luminance(bg_color)
+        # Use white text if background is dark (luminance < 0.5)
+        return "#FFFFFF" if luminance < 0.5 else "#000000"
 
     def render_external_link_zone(self, canvas_width: float, canvas_height: float):
         """Render the external link zone on the right side of the canvas."""
