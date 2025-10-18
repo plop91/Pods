@@ -28,6 +28,7 @@ class PodsApp:
 
         # Interaction state
         self.selected_pod: Optional[Pod] = None
+        self.selected_pods: List[Pod] = []  # For multi-select
         self.selected_relationship: Optional[Relationship] = None
         self.dragging = False
         self.panning = False
@@ -62,6 +63,11 @@ class PodsApp:
 
         # Clipboard for copy/paste
         self.clipboard: Optional[dict] = None
+
+        # Grid and snap settings
+        self.show_grid = False
+        self.snap_to_grid = False
+        self.grid_size = 20  # Grid spacing in pixels
 
         # Setup UI
         self.setup_ui()
@@ -106,6 +112,8 @@ class PodsApp:
         self.root.bind("<Control-y>", lambda e: self.redo())
         self.root.bind("<Control-c>", lambda e: self.copy_pod())
         self.root.bind("<Control-v>", lambda e: self.paste_pod())
+        self.root.bind("<Delete>", lambda e: self.delete_selected())
+        self.root.bind("<BackSpace>", lambda e: self.delete_selected())
 
         # Top toolbar
         toolbar = ttk.Frame(self.root, padding="5")
@@ -123,6 +131,27 @@ class PodsApp:
         # Add pod button
         add_button = ttk.Button(toolbar, text="+ Add Pod", command=self.add_new_pod)
         add_button.pack(side=tk.LEFT, padx=5)
+
+        # Separator
+        ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5)
+
+        # Alignment tools
+        ttk.Label(toolbar, text="Align:").pack(side=tk.LEFT, padx=(0, 2))
+        ttk.Button(toolbar, text="Left", width=5, command=lambda: self.align_pods("left")).pack(side=tk.LEFT, padx=1)
+        ttk.Button(toolbar, text="Center", width=6, command=lambda: self.align_pods("center")).pack(side=tk.LEFT, padx=1)
+        ttk.Button(toolbar, text="Right", width=5, command=lambda: self.align_pods("right")).pack(side=tk.LEFT, padx=1)
+        ttk.Button(toolbar, text="Top", width=4, command=lambda: self.align_pods("top")).pack(side=tk.LEFT, padx=1)
+        ttk.Button(toolbar, text="Middle", width=6, command=lambda: self.align_pods("middle")).pack(side=tk.LEFT, padx=1)
+        ttk.Button(toolbar, text="Bottom", width=6, command=lambda: self.align_pods("bottom")).pack(side=tk.LEFT, padx=1)
+
+        # Separator
+        ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5)
+
+        # Grid and snap checkboxes
+        self.grid_var = tk.BooleanVar(value=False)
+        self.snap_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(toolbar, text="Show Grid", variable=self.grid_var, command=self.toggle_grid).pack(side=tk.LEFT, padx=2)
+        ttk.Checkbutton(toolbar, text="Snap to Grid", variable=self.snap_var, command=self.toggle_snap).pack(side=tk.LEFT, padx=2)
 
         # Canvas
         self.canvas = tk.Canvas(self.root, bg="white", highlightthickness=0)
@@ -194,6 +223,10 @@ class PodsApp:
         # Calculate offset to center the view, including pan offset
         offset_x = canvas_width / 2 + self.pan_offset_x
         offset_y = canvas_height / 2 + self.pan_offset_y
+
+        # Render grid if enabled
+        if self.show_grid:
+            self.render_grid(canvas_width, canvas_height, offset_x, offset_y)
 
         # Render relationships first (so they appear behind pods)
         for rel in self.relationships:
@@ -822,18 +855,37 @@ class PodsApp:
 
         pod = self.get_pod_at_position(event.x, event.y)
 
-        # Deselect previous pod selection
-        if self.selected_pod:
-            self.selected_pod.selected = False
-
-        # Deselect previous relationship selection
-        if self.selected_relationship:
-            self.selected_relationship.selected = False
-            self.selected_relationship = None
+        # Check if Ctrl is held for multi-select
+        ctrl_held = (event.state & 0x4) != 0
 
         if pod:
-            pod.selected = True
-            self.selected_pod = pod
+            if ctrl_held:
+                # Multi-select mode
+                if pod in self.selected_pods:
+                    # Deselect this pod
+                    pod.selected = False
+                    self.selected_pods.remove(pod)
+                    self.selected_pod = self.selected_pods[0] if self.selected_pods else None
+                else:
+                    # Add to selection
+                    pod.selected = True
+                    self.selected_pods.append(pod)
+                    self.selected_pod = pod
+            else:
+                # Single select mode - clear all previous selections
+                for p in self.selected_pods:
+                    p.selected = False
+                self.selected_pods.clear()
+
+                # Deselect previous relationship selection
+                if self.selected_relationship:
+                    self.selected_relationship.selected = False
+                    self.selected_relationship = None
+
+                pod.selected = True
+                self.selected_pod = pod
+                self.selected_pods = [pod]
+
             self.dragging = True
             self.drag_start_x = event.x
             self.drag_start_y = event.y
@@ -841,16 +893,31 @@ class PodsApp:
             # Check if clicking on a relationship
             relationship = self.get_relationship_at_position(event.x, event.y)
             if relationship:
+                # Clear pod selections
+                for p in self.selected_pods:
+                    p.selected = False
+                self.selected_pods.clear()
+                self.selected_pod = None
+
                 relationship.selected = True
                 self.selected_relationship = relationship
-                self.selected_pod = None
             else:
-                # Clicking on empty space - start panning
-                self.selected_pod = None
-                self.panning = True
-                self.drag_start_x = event.x
-                self.drag_start_y = event.y
-                self.canvas.config(cursor="fleur")  # Hand/move cursor
+                # Clicking on empty space
+                if not ctrl_held:
+                    # Clear all selections and start panning
+                    for p in self.selected_pods:
+                        p.selected = False
+                    self.selected_pods.clear()
+                    self.selected_pod = None
+
+                    if self.selected_relationship:
+                        self.selected_relationship.selected = False
+                        self.selected_relationship = None
+
+                    self.panning = True
+                    self.drag_start_x = event.x
+                    self.drag_start_y = event.y
+                    self.canvas.config(cursor="fleur")  # Hand/move cursor
 
         self.render()
 
@@ -885,16 +952,22 @@ class PodsApp:
             self.drag_start_y = event.y
 
             self.render()
-        elif self.dragging and self.selected_pod:
+        elif self.dragging and self.selected_pods:
             # Calculate drag delta (account for zoom)
             dx = (event.x - self.drag_start_x) / self.zoom_scale
             dy = (event.y - self.drag_start_y) / self.zoom_scale
 
-            # Move pod
-            self.selected_pod.move_to(
-                self.selected_pod.x + dx,
-                self.selected_pod.y + dy
-            )
+            # Move all selected pods
+            for pod in self.selected_pods:
+                new_x = pod.x + dx
+                new_y = pod.y + dy
+
+                # Apply snap to grid if enabled
+                if self.snap_to_grid:
+                    new_x = self.snap_to_grid_coord(new_x)
+                    new_y = self.snap_to_grid_coord(new_y)
+
+                pod.move_to(new_x, new_y)
 
             # Update drag start position
             self.drag_start_x = event.x
@@ -1364,6 +1437,7 @@ class PodsApp:
         self.back_button.config(state=tk.NORMAL)
         self.nav_label.config(text=f"Current: {pod.name}")
         self.selected_pod = None
+        self.selected_pods.clear()
 
         # Reset pan offset and zoom when entering a new container
         self.pan_offset_x = 0
@@ -1378,6 +1452,7 @@ class PodsApp:
             self.current_container = self.navigation_history.pop()
             self.nav_label.config(text=f"Current: {self.current_container.name}")
             self.selected_pod = None
+            self.selected_pods.clear()
 
             # Reset pan offset and zoom when going back
             self.pan_offset_x = 0
@@ -1422,6 +1497,11 @@ class PodsApp:
 
         world_x = (canvas_x - offset_x) / self.zoom_scale
         world_y = (canvas_y - offset_y) / self.zoom_scale
+
+        # Apply snap to grid if enabled
+        if self.snap_to_grid:
+            world_x = self.snap_to_grid_coord(world_x)
+            world_y = self.snap_to_grid_coord(world_y)
 
         # Create new pod at the clicked position
         new_pod = Pod(
@@ -1494,6 +1574,45 @@ class PodsApp:
 
         self.render()
 
+    def delete_selected(self):
+        """Delete the currently selected pod(s) or relationship using Delete key."""
+        if self.selected_pods:
+            # Delete all selected pods
+            if len(self.selected_pods) == 1:
+                self.delete_pod(self.selected_pods[0])
+            else:
+                # Confirm deletion of multiple pods
+                response = messagebox.askyesno(
+                    "Delete Pods",
+                    f"Are you sure you want to delete {len(self.selected_pods)} pods?\nThis will also delete all relationships connected to them."
+                )
+                if not response:
+                    return
+
+                # Save state for undo
+                self.save_state()
+
+                # Delete all selected pods
+                for pod in list(self.selected_pods):  # Use list() to avoid modifying during iteration
+                    # Remove all relationships connected to this pod
+                    self.relationships = [
+                        rel for rel in self.relationships
+                        if rel.source != pod and rel.target != pod
+                    ]
+
+                    # Remove pod from parent
+                    if pod.parent:
+                        pod.parent.remove_child(pod)
+
+                    pod.selected = False
+
+                # Clear selections
+                self.selected_pods.clear()
+                self.selected_pod = None
+                self.render()
+        elif self.selected_relationship:
+            self.delete_relationship(self.selected_relationship)
+
     def save_state(self):
         """Save the current state for undo/redo functionality."""
         # Create a snapshot of the current state
@@ -1544,6 +1663,7 @@ class PodsApp:
         self.nav_label.config(text=f"Current: {self.current_container.name}")
         self.back_button.config(state=tk.NORMAL if self.navigation_history else tk.DISABLED)
         self.selected_pod = None
+        self.selected_pods.clear()
         self.selected_relationship = None
 
         self.render()
@@ -1585,35 +1705,53 @@ class PodsApp:
         self.restore_state(next_state)
 
     def copy_pod(self):
-        """Copy the selected pod to clipboard."""
-        if not self.selected_pod:
+        """Copy the selected pod(s) to clipboard."""
+        if not self.selected_pods:
             return
 
-        # Save pod data to clipboard
-        self.clipboard = self.selected_pod.to_dict()
+        # Save pod data to clipboard (support multiple pods)
+        if len(self.selected_pods) == 1:
+            self.clipboard = {"single": self.selected_pods[0].to_dict()}
+        else:
+            self.clipboard = {"multiple": [pod.to_dict() for pod in self.selected_pods]}
 
     def paste_pod(self):
-        """Paste a pod from clipboard."""
+        """Paste pod(s) from clipboard."""
         if not self.clipboard:
             return
 
         # Save state for undo
         self.save_state()
 
-        # Create a new pod from clipboard data
-        new_pod = Pod.from_dict(self.clipboard)
-
-        # Generate new ID and offset position
-        new_pod.id = str(uuid.uuid4())
-        new_pod.x += 30  # Offset to make it visible
-        new_pod.y += 30
-        new_pod.name = f"{new_pod.name} (Copy)"
-
-        # Recursively update all child IDs
-        self._update_pod_ids(new_pod)
-
-        # Add to current container
-        self.current_container.add_child(new_pod)
+        # Handle both old (single pod dict) and new (single/multiple) clipboard formats
+        if "single" in self.clipboard:
+            pod_data = self.clipboard["single"]
+            new_pod = Pod.from_dict(pod_data)
+            new_pod.id = str(uuid.uuid4())
+            new_pod.x += 30
+            new_pod.y += 30
+            new_pod.name = f"{new_pod.name} (Copy)"
+            self._update_pod_ids(new_pod)
+            self.current_container.add_child(new_pod)
+        elif "multiple" in self.clipboard:
+            # Paste multiple pods
+            for pod_data in self.clipboard["multiple"]:
+                new_pod = Pod.from_dict(pod_data)
+                new_pod.id = str(uuid.uuid4())
+                new_pod.x += 30
+                new_pod.y += 30
+                new_pod.name = f"{new_pod.name} (Copy)"
+                self._update_pod_ids(new_pod)
+                self.current_container.add_child(new_pod)
+        else:
+            # Old format - single pod dict
+            new_pod = Pod.from_dict(self.clipboard)
+            new_pod.id = str(uuid.uuid4())
+            new_pod.x += 30
+            new_pod.y += 30
+            new_pod.name = f"{new_pod.name} (Copy)"
+            self._update_pod_ids(new_pod)
+            self.current_container.add_child(new_pod)
 
         self.render()
 
@@ -1622,6 +1760,82 @@ class PodsApp:
         for child in pod.children:
             child.id = str(uuid.uuid4())
             self._update_pod_ids(child)
+
+    def align_pods(self, direction: str):
+        """Align selected pods in the specified direction."""
+        if len(self.selected_pods) < 2:
+            return  # Need at least 2 pods to align
+
+        # Save state for undo
+        self.save_state()
+
+        if direction == "left":
+            # Align to leftmost edge
+            min_x = min(pod.x - pod.width / 2 for pod in self.selected_pods)
+            for pod in self.selected_pods:
+                pod.x = min_x + pod.width / 2
+        elif direction == "right":
+            # Align to rightmost edge
+            max_x = max(pod.x + pod.width / 2 for pod in self.selected_pods)
+            for pod in self.selected_pods:
+                pod.x = max_x - pod.width / 2
+        elif direction == "center":
+            # Align to horizontal center
+            avg_x = sum(pod.x for pod in self.selected_pods) / len(self.selected_pods)
+            for pod in self.selected_pods:
+                pod.x = avg_x
+        elif direction == "top":
+            # Align to top edge
+            min_y = min(pod.y - pod.height / 2 for pod in self.selected_pods)
+            for pod in self.selected_pods:
+                pod.y = min_y + pod.height / 2
+        elif direction == "bottom":
+            # Align to bottom edge
+            max_y = max(pod.y + pod.height / 2 for pod in self.selected_pods)
+            for pod in self.selected_pods:
+                pod.y = max_y - pod.height / 2
+        elif direction == "middle":
+            # Align to vertical middle
+            avg_y = sum(pod.y for pod in self.selected_pods) / len(self.selected_pods)
+            for pod in self.selected_pods:
+                pod.y = avg_y
+
+        self.render()
+
+    def render_grid(self, canvas_width: float, canvas_height: float, offset_x: float, offset_y: float):
+        """Render a grid overlay on the canvas."""
+        grid_size_zoomed = self.grid_size * self.zoom_scale
+
+        # Calculate starting positions to align grid with world coordinates
+        start_x = (offset_x % grid_size_zoomed)
+        start_y = (offset_y % grid_size_zoomed)
+
+        # Draw vertical lines
+        x = start_x
+        while x < canvas_width:
+            self.canvas.create_line(x, 0, x, canvas_height, fill="#E0E0E0", tags=("grid",))
+            x += grid_size_zoomed
+
+        # Draw horizontal lines
+        y = start_y
+        while y < canvas_height:
+            self.canvas.create_line(0, y, canvas_width, y, fill="#E0E0E0", tags=("grid",))
+            y += grid_size_zoomed
+
+    def toggle_grid(self):
+        """Toggle grid visibility."""
+        self.show_grid = self.grid_var.get()
+        self.render()
+
+    def toggle_snap(self):
+        """Toggle snap to grid."""
+        self.snap_to_grid = self.snap_var.get()
+
+    def snap_to_grid_coord(self, coord: float) -> float:
+        """Snap a coordinate to the nearest grid point."""
+        if not self.snap_to_grid:
+            return coord
+        return round(coord / self.grid_size) * self.grid_size
 
     def build_pod_lookup(self, pod: Pod, lookup: Dict[str, Pod]):
         """Recursively build a lookup dictionary of pod ID -> pod object."""
@@ -1646,6 +1860,7 @@ class PodsApp:
         self.relationships = []
         self.navigation_history = []
         self.selected_pod = None
+        self.selected_pods.clear()
         self.selected_relationship = None
         self.current_file_path = None
         self.pan_offset_x = 0
@@ -1746,6 +1961,7 @@ class PodsApp:
             self.current_container = self.main_pod
             self.navigation_history = []
             self.selected_pod = None
+            self.selected_pods.clear()
             self.selected_relationship = None
             self.current_file_path = file_path
             self.pan_offset_x = 0
