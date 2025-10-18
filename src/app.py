@@ -84,6 +84,11 @@ class PodsApp:
         self.minimap_window: Optional[tk.Toplevel] = None
         self.show_minimap = False
 
+        # Recent files
+        self.recent_files: List[str] = []
+        self.max_recent_files = 10
+        self.load_recent_files()
+
         # Setup UI
         self.setup_ui()
 
@@ -111,6 +116,15 @@ class PodsApp:
         file_menu.add_command(label="Save", command=self.save_project, accelerator="Ctrl+S")
         file_menu.add_command(label="Save As...", command=self.save_project_as, accelerator="Ctrl+Shift+S")
         file_menu.add_separator()
+        file_menu.add_command(label="Export to PNG...", command=self.export_to_png)
+        file_menu.add_separator()
+
+        # Recent files submenu
+        self.recent_files_menu = tk.Menu(file_menu, tearoff=0)
+        file_menu.add_cascade(label="Recent Files", menu=self.recent_files_menu)
+        self.update_recent_files_menu()
+
+        file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.root.quit)
 
         # Edit menu
@@ -134,6 +148,20 @@ class PodsApp:
         self.root.bind("<Delete>", lambda e: self.delete_selected())
         self.root.bind("<BackSpace>", lambda e: self.delete_selected())
         self.root.bind("<Control-f>", lambda e: self.open_search_dialog())
+        self.root.bind("<Control-a>", lambda e: self.select_all())
+        self.root.bind("<Control-d>", lambda e: self.duplicate_selected())
+
+        # Arrow key movement
+        self.root.bind("<Left>", lambda e: self.move_selected(-5, 0))
+        self.root.bind("<Right>", lambda e: self.move_selected(5, 0))
+        self.root.bind("<Up>", lambda e: self.move_selected(0, -5))
+        self.root.bind("<Down>", lambda e: self.move_selected(0, 5))
+
+        # Shift+Arrow for larger movements
+        self.root.bind("<Shift-Left>", lambda e: self.move_selected(-20, 0))
+        self.root.bind("<Shift-Right>", lambda e: self.move_selected(20, 0))
+        self.root.bind("<Shift-Up>", lambda e: self.move_selected(0, -20))
+        self.root.bind("<Shift-Down>", lambda e: self.move_selected(0, 20))
 
         # Top toolbar
         toolbar = ttk.Frame(self.root, padding="5")
@@ -1137,7 +1165,30 @@ class PodsApp:
                 menu.add_command(label="Edit Description", command=lambda: self.edit_pod_description(pod))
 
             menu.add_separator()
-            menu.add_command(label="Change Color", command=lambda: self.change_pod_color(pod))
+
+            # Color presets submenu
+            color_menu = tk.Menu(menu, tearoff=0)
+            menu.add_cascade(label="Quick Colors", menu=color_menu)
+
+            # Define color presets with names
+            color_presets = [
+                ("Red", "#FFCDD2"),
+                ("Orange", "#FFE0B2"),
+                ("Yellow", "#FFF9C4"),
+                ("Green", "#C8E6C9"),
+                ("Blue", "#BBDEFB"),
+                ("Purple", "#E1BEE7"),
+                ("Gray", "#E0E0E0"),
+                ("White", "#FFFFFF")
+            ]
+
+            for color_name, color_hex in color_presets:
+                color_menu.add_command(
+                    label=color_name,
+                    command=lambda c=color_hex, p=pod: self.set_pod_color(p, c)
+                )
+
+            menu.add_command(label="Custom Color...", command=lambda: self.change_pod_color(pod))
             menu.add_separator()
             menu.add_command(label="Delete Pod", command=lambda: self.delete_pod(pod))
 
@@ -1282,6 +1333,15 @@ class PodsApp:
             self.edit_pod_description(pod)
         else:
             self.render()
+
+    def set_pod_color(self, pod: Pod, color: str):
+        """Set pod color to a specific color."""
+        # Save state for undo
+        self.save_state()
+
+        # Update pod color
+        pod.color = color
+        self.render()
 
     def change_pod_color(self, pod: Pod):
         """Open color picker to change pod color."""
@@ -1662,6 +1722,45 @@ class PodsApp:
                 self.render()
         elif self.selected_relationship:
             self.delete_relationship(self.selected_relationship)
+
+    def move_selected(self, dx: float, dy: float):
+        """Move selected pods by the given delta."""
+        if not self.selected_pods:
+            return
+
+        # Save state for undo
+        self.save_state()
+
+        # Move all selected pods
+        for pod in self.selected_pods:
+            pod.x += dx
+            pod.y += dy
+
+        self.render()
+
+    def select_all(self):
+        """Select all pods in the current container."""
+        # Clear current selections
+        for pod in self.selected_pods:
+            pod.selected = False
+        self.selected_pods.clear()
+
+        # Select all pods in current container
+        for pod in self.current_container.children:
+            pod.selected = True
+            self.selected_pods.append(pod)
+
+        self.selected_pod = self.selected_pods[0] if self.selected_pods else None
+        self.render()
+
+    def duplicate_selected(self):
+        """Duplicate the selected pod(s) - shortcut for copy+paste."""
+        if not self.selected_pods:
+            return
+
+        # Use existing copy and paste functionality
+        self.copy_pod()
+        self.paste_pod()
 
     def save_state(self):
         """Save the current state for undo/redo functionality."""
@@ -2288,6 +2387,201 @@ class PodsApp:
         if self.show_minimap:
             self.render_minimap()
 
+    def export_to_png(self):
+        """Export the current view to a PNG file."""
+        # Ask user for file path
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".png",
+            filetypes=[("PNG files", "*.png"), ("All files", "*.*")],
+            title="Export to PNG"
+        )
+
+        if not file_path:
+            return
+
+        try:
+            # Try to use PIL/Pillow if available
+            try:
+                from PIL import Image, ImageDraw
+
+                # Get canvas dimensions
+                canvas_width = self.canvas.winfo_width()
+                canvas_height = self.canvas.winfo_height()
+
+                # Create a white image
+                img = Image.new('RGB', (canvas_width, canvas_height), 'white')
+
+                # Generate PostScript and convert to image
+                ps = self.canvas.postscript(colormode='color')
+
+                # Save PostScript to temp file and convert
+                import tempfile
+                import os
+
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.ps') as tmp:
+                    tmp.write(ps.encode('utf-8'))
+                    tmp_path = tmp.name
+
+                try:
+                    # Try to convert using PIL
+                    from PIL import Image
+                    img = Image.open(tmp_path)
+                    img.save(file_path, 'PNG')
+                    messagebox.showinfo("Success", f"Exported to {file_path}")
+                except:
+                    # If PIL can't handle PS, use alternative method
+                    raise ImportError("PostScript conversion not supported")
+                finally:
+                    os.unlink(tmp_path)
+
+            except ImportError:
+                # Fallback: Use tkinter's built-in screenshot capability
+                # This requires the canvas to be visible
+                x = self.root.winfo_rootx() + self.canvas.winfo_x()
+                y = self.root.winfo_rooty() + self.canvas.winfo_y()
+                x1 = x + self.canvas.winfo_width()
+                y1 = y + self.canvas.winfo_height()
+
+                # Try using PIL for screenshot
+                from PIL import ImageGrab
+                img = ImageGrab.grab(bbox=(x, y, x1, y1))
+                img.save(file_path, 'PNG')
+                messagebox.showinfo("Success", f"Exported to {file_path}")
+
+        except Exception as e:
+            messagebox.showerror("Export Failed", f"Could not export to PNG:\n{str(e)}\n\nNote: PNG export requires Pillow (pip install pillow)")
+
+    def load_recent_files(self):
+        """Load recent files list from config file."""
+        try:
+            import os
+            config_path = os.path.expanduser("~/.pods_recent.json")
+            if os.path.exists(config_path):
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    self.recent_files = data.get("recent_files", [])
+        except Exception as e:
+            print(f"Could not load recent files: {e}")
+            self.recent_files = []
+
+    def save_recent_files(self):
+        """Save recent files list to config file."""
+        try:
+            import os
+            config_path = os.path.expanduser("~/.pods_recent.json")
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump({"recent_files": self.recent_files}, f, indent=2)
+        except Exception as e:
+            print(f"Could not save recent files: {e}")
+
+    def add_recent_file(self, file_path: str):
+        """Add a file to the recent files list."""
+        import os
+        # Get absolute path
+        abs_path = os.path.abspath(file_path)
+
+        # Remove if already in list
+        if abs_path in self.recent_files:
+            self.recent_files.remove(abs_path)
+
+        # Add to front of list
+        self.recent_files.insert(0, abs_path)
+
+        # Limit list size
+        self.recent_files = self.recent_files[:self.max_recent_files]
+
+        # Save to disk
+        self.save_recent_files()
+
+        # Update menu
+        self.update_recent_files_menu()
+
+    def update_recent_files_menu(self):
+        """Update the recent files menu."""
+        # Clear existing items
+        self.recent_files_menu.delete(0, tk.END)
+
+        if not self.recent_files:
+            self.recent_files_menu.add_command(label="(No recent files)", state=tk.DISABLED)
+            return
+
+        # Add recent files
+        import os
+        for file_path in self.recent_files:
+            # Show just the filename for cleaner menu
+            filename = os.path.basename(file_path)
+            self.recent_files_menu.add_command(
+                label=filename,
+                command=lambda fp=file_path: self.load_project_file(fp)
+            )
+
+        # Add separator and clear option
+        self.recent_files_menu.add_separator()
+        self.recent_files_menu.add_command(label="Clear Recent Files", command=self.clear_recent_files)
+
+    def clear_recent_files(self):
+        """Clear the recent files list."""
+        self.recent_files.clear()
+        self.save_recent_files()
+        self.update_recent_files_menu()
+
+    def load_project_file(self, file_path: str):
+        """Load a specific project file."""
+        import os
+        if not os.path.exists(file_path):
+            messagebox.showerror("Error", f"File not found:\n{file_path}")
+            # Remove from recent files
+            if file_path in self.recent_files:
+                self.recent_files.remove(file_path)
+                self.save_recent_files()
+                self.update_recent_files_menu()
+            return
+
+        # Use existing load_project logic
+        self.current_file_path = file_path
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                project_data = json.load(f)
+
+            # Deserialize main pod
+            self.main_pod = Pod.from_dict(project_data["main_pod"])
+
+            # Build pod lookup dictionary
+            pod_lookup: Dict[str, Pod] = {}
+            self.build_pod_lookup(self.main_pod, pod_lookup)
+
+            # Deserialize relationships
+            self.relationships = [
+                Relationship.from_dict(rel_data, pod_lookup)
+                for rel_data in project_data.get("relationships", [])
+            ]
+
+            # Reset state
+            self.current_container = self.main_pod
+            self.navigation_history = []
+            self.selected_pod = None
+            self.selected_pods.clear()
+            self.selected_relationship = None
+            self.pan_offset_x = 0
+            self.pan_offset_y = 0
+            self.zoom_scale = 1.0
+
+            # Update UI
+            self.nav_label.config(text="Current: Main")
+            self.back_button.config(state=tk.DISABLED)
+
+            # Update window title
+            filename = os.path.basename(file_path)
+            self.root.title(f"Pods - {filename}")
+
+            # Add to recent files
+            self.add_recent_file(file_path)
+
+            self.render()
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not load project:\n{str(e)}")
+
     def build_pod_lookup(self, pod: Pod, lookup: Dict[str, Pod]):
         """Recursively build a lookup dictionary of pod ID -> pod object."""
         lookup[pod.id] = pod
@@ -2363,6 +2657,9 @@ class PodsApp:
             filename = os.path.basename(file_path)
             self.root.title(f"Pods - {filename}")
 
+            # Add to recent files
+            self.add_recent_file(file_path)
+
             messagebox.showinfo("Save Successful", f"Project saved to {file_path}")
 
         except Exception as e:
@@ -2386,7 +2683,7 @@ class PodsApp:
         )
 
         if file_path:
-            self._load_from_file(file_path)
+            self.load_project_file(file_path)
 
     def _load_from_file(self, file_path: str):
         """Internal method to load project from a specific file."""
