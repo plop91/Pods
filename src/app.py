@@ -1,7 +1,7 @@
 """Main application window with canvas and interaction handling."""
 
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, filedialog, messagebox, colorchooser
 from typing import List, Optional, Dict
 import math
 import json
@@ -74,6 +74,16 @@ class PodsApp:
         self.search_results: List[tuple] = []  # List of (pod, path_string) tuples
         self.search_result_index = 0
 
+        # Autosave settings
+        self.autosave_enabled = True
+        self.autosave_interval = 300000  # 5 minutes in milliseconds
+        self.autosave_timer_id = None
+        self.last_autosave_time = 0
+
+        # Minimap state
+        self.minimap_window: Optional[tk.Toplevel] = None
+        self.show_minimap = False
+
         # Setup UI
         self.setup_ui()
 
@@ -82,6 +92,10 @@ class PodsApp:
 
         # Delay initial render until window is fully displayed and canvas has correct dimensions
         self.root.after(100, self.initial_render)
+
+        # Start autosave timer
+        if self.autosave_enabled:
+            self.schedule_autosave()
 
     def setup_ui(self):
         """Setup the user interface."""
@@ -158,6 +172,13 @@ class PodsApp:
         self.snap_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(toolbar, text="Show Grid", variable=self.grid_var, command=self.toggle_grid).pack(side=tk.LEFT, padx=2)
         ttk.Checkbutton(toolbar, text="Snap to Grid", variable=self.snap_var, command=self.toggle_snap).pack(side=tk.LEFT, padx=2)
+
+        # Minimap toggle
+        ttk.Button(toolbar, text="Minimap", command=self.toggle_minimap).pack(side=tk.LEFT, padx=5)
+
+        # Status label (autosave indicator)
+        self.status_label = ttk.Label(toolbar, text="", foreground="#666")
+        self.status_label.pack(side=tk.RIGHT, padx=5)
 
         # Canvas
         self.canvas = tk.Canvas(self.root, bg="white", highlightthickness=0)
@@ -241,6 +262,10 @@ class PodsApp:
         # Render pods
         for pod in self.current_container.children:
             self.render_pod(pod, offset_x, offset_y)
+
+        # Update minimap if visible
+        if self.show_minimap and self.minimap_window and self.minimap_window.winfo_exists():
+            self.render_minimap()
 
         # Render relationship creation indicator if in creation mode
         if self.creating_relationship and self.relationship_source_pod:
@@ -1112,6 +1137,8 @@ class PodsApp:
                 menu.add_command(label="Edit Description", command=lambda: self.edit_pod_description(pod))
 
             menu.add_separator()
+            menu.add_command(label="Change Color", command=lambda: self.change_pod_color(pod))
+            menu.add_separator()
             menu.add_command(label="Delete Pod", command=lambda: self.delete_pod(pod))
 
             # Display menu at cursor position
@@ -1254,6 +1281,23 @@ class PodsApp:
             # If enabling description for the first time, open edit dialog
             self.edit_pod_description(pod)
         else:
+            self.render()
+
+    def change_pod_color(self, pod: Pod):
+        """Open color picker to change pod color."""
+        # Open color chooser with current color
+        color = colorchooser.askcolor(
+            color=pod.color,
+            title="Choose Pod Color",
+            parent=self.root
+        )
+
+        if color and color[1]:  # color is ((r,g,b), '#RRGGBB')
+            # Save state for undo
+            self.save_state()
+
+            # Update pod color
+            pod.color = color[1]
             self.render()
 
     def edit_relationship_label(self, relationship: Relationship):
@@ -2033,6 +2077,216 @@ class PodsApp:
             self.pan_offset_y = 0
 
             self.render()
+
+    def schedule_autosave(self):
+        """Schedule the next autosave."""
+        if self.autosave_timer_id:
+            self.root.after_cancel(self.autosave_timer_id)
+        self.autosave_timer_id = self.root.after(self.autosave_interval, self.perform_autosave)
+
+    def perform_autosave(self):
+        """Perform autosave if a file is currently open."""
+        if self.current_file_path and self.autosave_enabled:
+            try:
+                # Build the project data structure
+                project_data = {
+                    "version": "1.0",
+                    "main_pod": self.main_pod.to_dict(),
+                    "relationships": [rel.to_dict() for rel in self.relationships]
+                }
+
+                # Write to file
+                with open(self.current_file_path, 'w', encoding='utf-8') as f:
+                    json.dump(project_data, f, indent=2)
+
+                # Update status label
+                import time
+                self.last_autosave_time = time.time()
+                self.status_label.config(text="Autosaved")
+                # Clear status after 3 seconds
+                self.root.after(3000, lambda: self.status_label.config(text=""))
+
+            except Exception as e:
+                print(f"Autosave failed: {e}")
+
+        # Schedule next autosave
+        self.schedule_autosave()
+
+    def toggle_minimap(self):
+        """Toggle minimap window visibility."""
+        if self.minimap_window and self.minimap_window.winfo_exists():
+            self.minimap_window.destroy()
+            self.minimap_window = None
+            self.show_minimap = False
+        else:
+            self.show_minimap_window()
+
+    def show_minimap_window(self):
+        """Create and show the minimap window."""
+        self.minimap_window = tk.Toplevel(self.root)
+        self.minimap_window.title("Minimap")
+        self.minimap_window.geometry("250x250")
+        self.minimap_window.attributes('-topmost', True)
+
+        # Position at bottom-right of main window
+        self.minimap_window.update_idletasks()
+        x = self.root.winfo_x() + self.root.winfo_width() - 270
+        y = self.root.winfo_y() + self.root.winfo_height() - 300
+        self.minimap_window.geometry(f"+{x}+{y}")
+
+        # Create canvas for minimap
+        self.minimap_canvas = tk.Canvas(self.minimap_window, bg="white", highlightthickness=1, highlightbackground="#999")
+        self.minimap_canvas.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        # Render minimap
+        self.render_minimap()
+
+        # Bind click to navigate
+        self.minimap_canvas.bind("<Button-1>", self.on_minimap_click)
+
+        # Update minimap when main canvas is rendered
+        self.show_minimap = True
+
+    def render_minimap(self):
+        """Render the minimap showing all pods in current container."""
+        if not self.minimap_window or not self.minimap_window.winfo_exists():
+            return
+
+        self.minimap_canvas.delete("all")
+
+        if not self.current_container.children:
+            return
+
+        # Get minimap canvas size
+        mm_width = self.minimap_canvas.winfo_width()
+        mm_height = self.minimap_canvas.winfo_height()
+
+        if mm_width < 10 or mm_height < 10:
+            return
+
+        # Calculate bounding box of all pods
+        min_x = min(pod.x - pod.width / 2 for pod in self.current_container.children)
+        max_x = max(pod.x + pod.width / 2 for pod in self.current_container.children)
+        min_y = min(pod.y - pod.height / 2 for pod in self.current_container.children)
+        max_y = max(pod.y + pod.height / 2 for pod in self.current_container.children)
+
+        # Add padding
+        padding = 50
+        min_x -= padding
+        max_x += padding
+        min_y -= padding
+        max_y += padding
+
+        # Calculate scale to fit everything
+        world_width = max_x - min_x
+        world_height = max_y - min_y
+
+        if world_width == 0 or world_height == 0:
+            return
+
+        scale_x = mm_width / world_width
+        scale_y = mm_height / world_height
+        scale = min(scale_x, scale_y) * 0.9  # Use 90% to leave some margin
+
+        # Transform function
+        def world_to_minimap(wx, wy):
+            mx = (wx - min_x) * scale
+            my = (wy - min_y) * scale
+            return mx, my
+
+        # Draw relationships
+        for rel in self.relationships:
+            # Only draw relationships in current container
+            if rel.source.parent == self.current_container and rel.target.parent == self.current_container:
+                x1, y1 = world_to_minimap(rel.source.x, rel.source.y)
+                x2, y2 = world_to_minimap(rel.target.x, rel.target.y)
+                self.minimap_canvas.create_line(x1, y1, x2, y2, fill="#999", width=1)
+
+        # Draw pods
+        for pod in self.current_container.children:
+            x1, y1, x2, y2 = pod.get_bounds()
+            mx1, my1 = world_to_minimap(x1, y1)
+            mx2, my2 = world_to_minimap(x2, y2)
+
+            # Use pod color but slightly darker
+            color = pod.color if not pod.selected else "#3498DB"
+            self.minimap_canvas.create_rectangle(
+                mx1, my1, mx2, my2,
+                fill=color,
+                outline="#666",
+                width=1
+            )
+
+        # Draw viewport indicator
+        canvas_width = self.canvas.winfo_width()
+        canvas_height = self.canvas.winfo_height()
+
+        # Calculate viewport in world coordinates
+        offset_x = canvas_width / 2 + self.pan_offset_x
+        offset_y = canvas_height / 2 + self.pan_offset_y
+
+        viewport_world_x1 = -offset_x / self.zoom_scale
+        viewport_world_y1 = -offset_y / self.zoom_scale
+        viewport_world_x2 = (canvas_width - offset_x) / self.zoom_scale
+        viewport_world_y2 = (canvas_height - offset_y) / self.zoom_scale
+
+        # Transform to minimap coordinates
+        vp_x1, vp_y1 = world_to_minimap(viewport_world_x1, viewport_world_y1)
+        vp_x2, vp_y2 = world_to_minimap(viewport_world_x2, viewport_world_y2)
+
+        # Draw viewport rectangle
+        self.minimap_canvas.create_rectangle(
+            vp_x1, vp_y1, vp_x2, vp_y2,
+            outline="#FF0000",
+            width=2,
+            tags=("viewport",)
+        )
+
+    def on_minimap_click(self, event):
+        """Handle click on minimap to pan viewport."""
+        if not self.current_container.children:
+            return
+
+        mm_width = self.minimap_canvas.winfo_width()
+        mm_height = self.minimap_canvas.winfo_height()
+
+        # Calculate bounding box (same as in render_minimap)
+        min_x = min(pod.x - pod.width / 2 for pod in self.current_container.children)
+        max_x = max(pod.x + pod.width / 2 for pod in self.current_container.children)
+        min_y = min(pod.y - pod.height / 2 for pod in self.current_container.children)
+        max_y = max(pod.y + pod.height / 2 for pod in self.current_container.children)
+
+        padding = 50
+        min_x -= padding
+        max_x += padding
+        min_y -= padding
+        max_y += padding
+
+        world_width = max_x - min_x
+        world_height = max_y - min_y
+
+        if world_width == 0 or world_height == 0:
+            return
+
+        scale_x = mm_width / world_width
+        scale_y = mm_height / world_height
+        scale = min(scale_x, scale_y) * 0.9
+
+        # Convert minimap click to world coordinates
+        world_x = (event.x / scale) + min_x
+        world_y = (event.y / scale) + min_y
+
+        # Center viewport on this world position
+        canvas_width = self.canvas.winfo_width()
+        canvas_height = self.canvas.winfo_height()
+
+        # Calculate pan offset to center on clicked position
+        self.pan_offset_x = -(world_x * self.zoom_scale - canvas_width / 2)
+        self.pan_offset_y = -(world_y * self.zoom_scale - canvas_height / 2)
+
+        self.render()
+        if self.show_minimap:
+            self.render_minimap()
 
     def build_pod_lookup(self, pod: Pod, lookup: Dict[str, Pod]):
         """Recursively build a lookup dictionary of pod ID -> pod object."""
