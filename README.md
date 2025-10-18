@@ -21,9 +21,12 @@ A hierarchical visual organization tool for managing ideas, concepts, and their 
 - **Relationship Creation**: Click the green plus buttons on selected Pods to create relationships
 - **Rich Descriptions**: Add detailed descriptions to both Pods and Relationships
 - **Canvas Panning**: Click empty space and drag to pan around large diagrams
+- **Zoom Functionality**: Use scroll wheel to zoom in/out for better navigation
 - **Context Menus**: Right-click Pods or Relationships to edit properties
+- **Undo/Redo**: Comprehensive undo/redo support with Ctrl+Z and Ctrl+Y
+- **Copy/Paste**: Duplicate Pods with Ctrl+C and Ctrl+V
 - **Project Management**: Save, load, and create new projects with File menu
-- **Keyboard Shortcuts**: Quick access to common operations (Ctrl+N, Ctrl+O, Ctrl+S)
+- **Keyboard Shortcuts**: Quick access to common operations (see below)
 
 ## Installation
 
@@ -117,6 +120,38 @@ When you launch Pods, you'll see the Main pod with several example pods already 
 2. Right-click the selected relationship
 3. Choose "Edit Label" to change the relationship type (e.g., "owns", "manages")
 4. Choose "Edit Description" to add notes (visible only when selected)
+5. Choose "Delete Relationship" to remove the relationship
+
+**Copying and Pasting Pods:**
+
+1. Select a Pod by clicking it
+2. Press Ctrl+C to copy the Pod
+3. Press Ctrl+V to paste a duplicate (offset slightly from the original)
+4. Pasted Pods include all children and properties
+
+**Zooming:**
+
+- Scroll up with the mouse wheel to zoom in
+- Scroll down with the mouse wheel to zoom out
+- Zoom is centered on the mouse cursor position
+
+**Undo/Redo:**
+
+- Press Ctrl+Z to undo the last action
+- Press Ctrl+Y to redo an undone action
+- Up to 50 actions can be undone
+
+### Keyboard Shortcuts
+
+- **Ctrl+N**: New Project
+- **Ctrl+O**: Open Project
+- **Ctrl+S**: Save Project
+- **Ctrl+Shift+S**: Save As
+- **Ctrl+Z**: Undo
+- **Ctrl+Y**: Redo
+- **Ctrl+C**: Copy selected Pod
+- **Ctrl+V**: Paste Pod
+- **ESC**: Cancel relationship creation
 
 ### File Operations
 
@@ -198,15 +233,16 @@ Projects are saved as JSON files with the following structure:
 - **Organization**: Use the hierarchy to organize complex projects - create top-level Pods for major categories, then drill down into details
 - **Visual Clarity**: Use descriptions for important Pods that need context
 - **Relationship Labels**: Keep labels concise (e.g., "uses", "depends on", "manages")
-- **Pan and Zoom**: For large diagrams, use canvas panning (click-drag empty space) to navigate
-- **Keyboard Shortcuts**: Learn the shortcuts (Ctrl+N/O/S) for faster workflow
+- **Pan and Zoom**: For large diagrams, use canvas panning (click-drag empty space) and scroll wheel zoom to navigate
+- **Keyboard Shortcuts**: Learn the shortcuts (Ctrl+Z/C/V) for faster workflow
+- **Undo/Redo**: Don't be afraid to experiment - you can always undo with Ctrl+Z
+- **Copy/Paste**: Quickly duplicate complex pod structures with Ctrl+C and Ctrl+V
 
 ## Known Limitations
 
-- No zoom functionality (planned for future release)
-- Undo/redo not yet implemented
-- No copy/paste functionality
-- Relationships cannot be deleted via UI (can be manually removed from JSON file)
+- No multi-select functionality (planned for future release)
+- No alignment tools for precise pod positioning
+- No export to image/PDF functionality
 
 ## Contributing
 
