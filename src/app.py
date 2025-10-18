@@ -93,6 +93,10 @@ class PodsApp:
         self.dark_mode = False
         self.load_preferences()
 
+        # Ghost pods (external pods shown in current view)
+        self.ghost_pods: List[Pod] = []
+        self.ghost_positions: dict = {}  # Maps pod ID to (x, y) canvas position
+
         # Setup UI
         self.setup_ui()
 
@@ -300,6 +304,10 @@ class PodsApp:
         if self.show_grid:
             self.render_grid(canvas_width, canvas_height, offset_x, offset_y)
 
+        # Detect and collect ghost pods (external pods with relationships to current container)
+        self.ghost_pods = self.collect_ghost_pods()
+        self.ghost_positions = self.calculate_ghost_positions(canvas_width, canvas_height)
+
         # Render relationships first (so they appear behind pods)
         for rel in self.relationships:
             self.render_relationship(rel, offset_x, offset_y)
@@ -307,6 +315,9 @@ class PodsApp:
         # Render pods
         for pod in self.current_container.children:
             self.render_pod(pod, offset_x, offset_y)
+
+        # Render ghost pods
+        self.render_ghost_pods()
 
         # Update minimap if visible
         if self.show_minimap and self.minimap_window and self.minimap_window.winfo_exists():
@@ -478,6 +489,113 @@ class PodsApp:
         # Use white text if background is dark (luminance < 0.5)
         return "#FFFFFF" if luminance < 0.5 else "#000000"
 
+    def collect_ghost_pods(self) -> list:
+        """Collect all external pods that have relationships to/from pods in current container.
+
+        Returns a list of unique external pods that should be shown as ghosts.
+        """
+        ghost_pods = []
+        seen_pod_ids = set()
+
+        for rel in self.relationships:
+            # Check if source is in current container and target is external
+            source_in_container = rel.source.parent == self.current_container
+            target_in_container = rel.target.parent == self.current_container
+
+            # Don't include the current container itself
+            if rel.source == self.current_container or rel.target == self.current_container:
+                continue
+
+            # If source is in container and target is external, add target as ghost
+            if source_in_container and not target_in_container:
+                if rel.target.id not in seen_pod_ids:
+                    ghost_pods.append(rel.target)
+                    seen_pod_ids.add(rel.target.id)
+
+            # If target is in container and source is external, add source as ghost
+            if target_in_container and not source_in_container:
+                if rel.source.id not in seen_pod_ids:
+                    ghost_pods.append(rel.source)
+                    seen_pod_ids.add(rel.source.id)
+
+        return ghost_pods
+
+    def calculate_ghost_positions(self, canvas_width: float, canvas_height: float) -> dict:
+        """Calculate positions for ghost pods at the bottom of the canvas.
+
+        Returns a dictionary mapping pod IDs to (x, y) positions.
+        """
+        if not self.ghost_pods:
+            return {}
+
+        positions = {}
+        ghost_zone_height = 80  # Height reserved for ghost pods at bottom
+        ghost_y = canvas_height - ghost_zone_height / 2  # Center vertically in ghost zone
+
+        # Calculate spacing for ghost pods
+        ghost_width = 100  # Standard width for ghost pods
+        spacing = 20  # Space between ghosts
+        total_width = len(self.ghost_pods) * (ghost_width + spacing) - spacing
+        start_x = (canvas_width - total_width) / 2  # Center horizontally
+
+        # Position each ghost pod
+        for i, pod in enumerate(self.ghost_pods):
+            x = start_x + i * (ghost_width + spacing) + ghost_width / 2
+            positions[pod.id] = (x, ghost_y)
+
+        return positions
+
+    def render_ghost_pods(self):
+        """Render ghost representations of external pods."""
+        if not self.ghost_pods:
+            return
+
+        ghost_width = 100
+        ghost_height = 50
+
+        for pod in self.ghost_pods:
+            if pod.id not in self.ghost_positions:
+                continue
+
+            x, y = self.ghost_positions[pod.id]
+
+            # Calculate bounds
+            x1 = x - ghost_width / 2
+            y1 = y - ghost_height / 2
+            x2 = x + ghost_width / 2
+            y2 = y + ghost_height / 2
+
+            # Draw ghost pod with dashed border and semi-transparent appearance
+            # Use stipple pattern for semi-transparency effect
+            self.canvas.create_rectangle(
+                x1, y1, x2, y2,
+                fill=pod.color,
+                outline="#888888",
+                width=2,
+                dash=(4, 4),  # Dashed border
+                stipple="gray50",  # Semi-transparent effect
+                tags=("ghost_pod", pod.id, "clickable")
+            )
+
+            # Draw pod name
+            text_color = self.get_contrast_text_color(pod.color)
+            self.canvas.create_text(
+                x, y - 8,
+                text=pod.name,
+                fill=text_color,
+                font=("Arial", 9, "bold"),
+                tags=("ghost_pod", pod.id)
+            )
+
+            # Draw "external" indicator
+            self.canvas.create_text(
+                x, y + 10,
+                text="↗ external",
+                fill="#888888",
+                font=("Arial", 7, "italic"),
+                tags=("ghost_pod", pod.id)
+            )
+
     def render_external_link_zone(self, canvas_width: float, canvas_height: float):
         """Render the external link zone on the right side of the canvas."""
         zone_x = canvas_width - self.external_link_zone_width
@@ -647,38 +765,19 @@ class PodsApp:
         x2 += offset_x
         y2 += offset_y
 
-        # If target is external, draw line to edge of canvas
+        # If target is external, connect to ghost pod instead of edge
         if not target_in_container:
-            canvas_width = self.canvas.winfo_width()
-            canvas_height = self.canvas.winfo_height()
+            if rel.target.id in self.ghost_positions:
+                ghost_x, ghost_y = self.ghost_positions[rel.target.id]
+                x2 = ghost_x
+                y2 = ghost_y
 
-            # Calculate direction vector
-            dx = x2 - x1
-            dy = y2 - y1
-
-            # Find intersection with canvas edge
-            # Check right edge first (most common for external links)
-            if dx > 0:
-                t = (canvas_width - self.external_link_zone_width - x1) / dx if dx != 0 else float('inf')
-                if 0 < t < 1:
-                    x2 = canvas_width - self.external_link_zone_width
-                    y2 = y1 + t * dy
-
-        # If source is external (less common but possible)
+        # If source is external, connect to ghost pod instead of edge
         if not source_in_container:
-            canvas_width = self.canvas.winfo_width()
-            canvas_height = self.canvas.winfo_height()
-
-            # Calculate direction vector
-            dx = x1 - x2
-            dy = y1 - y2
-
-            # Find intersection with canvas edge
-            if dx > 0:
-                t = (canvas_width - self.external_link_zone_width - x2) / dx if dx != 0 else float('inf')
-                if 0 < t < 1:
-                    x1 = canvas_width - self.external_link_zone_width
-                    y1 = y2 + t * dy
+            if rel.source.id in self.ghost_positions:
+                ghost_x, ghost_y = self.ghost_positions[rel.source.id]
+                x1 = ghost_x
+                y1 = ghost_y
 
         # Draw line
         color = "#3498DB" if rel.selected else rel.color
@@ -808,6 +907,63 @@ class PodsApp:
         # Return distance from point to closest point on segment
         return math.sqrt((px - closest_x) ** 2 + (py - closest_y) ** 2)
 
+    def get_ghost_pod_at_position(self, x: float, y: float) -> Optional[Pod]:
+        """Find the ghost pod at the given canvas position (no coordinate transformation needed)."""
+        if not self.ghost_pods or not self.ghost_positions:
+            return None
+
+        ghost_width = 100
+        ghost_height = 50
+
+        # Check all ghost pods
+        for pod in self.ghost_pods:
+            if pod.id not in self.ghost_positions:
+                continue
+
+            gx, gy = self.ghost_positions[pod.id]
+
+            # Check if click is within ghost bounds
+            x1 = gx - ghost_width / 2
+            y1 = gy - ghost_height / 2
+            x2 = gx + ghost_width / 2
+            y2 = gy + ghost_height / 2
+
+            if x1 <= x <= x2 and y1 <= y <= y2:
+                return pod
+
+        return None
+
+    def navigate_to_ghost_pod(self, ghost_pod: Pod):
+        """Navigate to the container where the ghost pod actually exists."""
+        # The ghost pod's parent is where it actually lives
+        if ghost_pod.parent:
+            # Navigate to the parent container
+            self.current_container = ghost_pod.parent
+            self.navigation_history.append(ghost_pod.parent)
+
+            # Select the ghost pod in its real location
+            for p in self.selected_pods:
+                p.selected = False
+            self.selected_pods.clear()
+
+            ghost_pod.selected = True
+            self.selected_pods.append(ghost_pod)
+            self.selected_pod = ghost_pod
+
+            # Reset view
+            self.pan_offset_x = 0
+            self.pan_offset_y = 0
+
+            self.render()
+        else:
+            # If ghost pod has no parent, it might be a top-level pod
+            # Navigate to it directly
+            self.current_container = ghost_pod
+            self.navigation_history.append(ghost_pod)
+            self.pan_offset_x = 0
+            self.pan_offset_y = 0
+            self.render()
+
     def get_resize_handle_at_position(self, x: float, y: float, pod: Pod) -> Optional[str]:
         """Check if position is over a resize handle. Returns handle direction or None."""
         if not pod.selected:
@@ -916,6 +1072,29 @@ class PodsApp:
         """Handle single click on canvas."""
         # If in relationship creation mode, complete the relationship
         if self.creating_relationship:
+            # Check if clicking on a ghost pod to create relationship to it
+            ghost_pod = self.get_ghost_pod_at_position(event.x, event.y)
+            if ghost_pod and ghost_pod != self.relationship_source_pod:
+                # Save state for undo
+                self.save_state()
+
+                # Create the relationship to the ghost pod
+                new_rel = Relationship(
+                    self.relationship_source_pod,
+                    ghost_pod,
+                    label="",
+                    relationship_type="default"
+                )
+                self.relationships.append(new_rel)
+
+                # Exit relationship creation mode
+                self.creating_relationship = False
+                self.relationship_source_pod = None
+                self.relationship_source_direction = None
+                self.canvas.config(cursor="arrow")
+                self.render()
+                return
+
             # Check if clicking in external link zone
             canvas_width = self.canvas.winfo_width()
             zone_x = canvas_width - self.external_link_zone_width
@@ -967,6 +1146,12 @@ class PodsApp:
                 self.drag_start_x = event.x
                 self.drag_start_y = event.y
                 return
+
+        # Check if clicking on a ghost pod to navigate to it
+        ghost_pod = self.get_ghost_pod_at_position(event.x, event.y)
+        if ghost_pod:
+            self.navigate_to_ghost_pod(ghost_pod)
+            return
 
         pod = self.get_pod_at_position(event.x, event.y)
 
