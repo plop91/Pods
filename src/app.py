@@ -227,10 +227,11 @@ class PodsApp:
     def create_example_data(self):
         """Create some example pods and relationships for demonstration."""
         # Create some example pods in the main container
-        pod1 = Pod("Project Ideas", x=200, y=200, width=120, height=70, shape="oval")
-        pod2 = Pod("Team Members", x=450, y=200, width=120, height=70, shape="oval")
-        pod3 = Pod("Resources", x=200, y=400, width=120, height=70, shape="oval")
-        pod4 = Pod("Timeline", x=450, y=400, width=120, height=70, shape="oval")
+        # Position them around origin (0,0) so they appear centered
+        pod1 = Pod("Project Ideas", x=-125, y=-100, width=120, height=70, shape="oval")
+        pod2 = Pod("Team Members", x=125, y=-100, width=120, height=70, shape="oval")
+        pod3 = Pod("Resources", x=-125, y=100, width=120, height=70, shape="oval")
+        pod4 = Pod("Timeline", x=125, y=100, width=120, height=70, shape="oval")
 
         self.main_pod.add_child(pod1)
         self.main_pod.add_child(pod2)
@@ -245,8 +246,9 @@ class PodsApp:
         self.relationships.extend([rel1, rel2, rel3])
 
         # Add some child pods to demonstrate hierarchy
-        sub_pod1 = Pod("Feature A", x=150, y=150, width=100, height=60, shape="oval")
-        sub_pod2 = Pod("Feature B", x=350, y=150, width=100, height=60, shape="oval")
+        # Position relative to (0,0) within the Project Ideas pod
+        sub_pod1 = Pod("Feature A", x=-100, y=0, width=100, height=60, shape="oval")
+        sub_pod2 = Pod("Feature B", x=100, y=0, width=100, height=60, shape="oval")
         pod1.add_child(sub_pod1)
         pod1.add_child(sub_pod2)
 
