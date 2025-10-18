@@ -7,6 +7,7 @@ A hierarchical visual organization tool for managing ideas, concepts, and their 
 **Pods** is a visual idea organization tool that helps you structure and connect your thoughts. Each Pod is a container that can represent anything - a person, group, idea, or concept. Pods can contain other Pods, creating a hierarchical structure that lets you organize information at multiple levels of detail.
 
 **Key Concepts:**
+
 - **Pods**: Visual containers (ovals or rectangles) that represent ideas, entities, or concepts
 - **Relationships**: Directional connections between Pods with customizable labels (e.g., "owns", "works on", "depends on")
 - **Hierarchical Navigation**: Double-click any Pod to enter it and view/edit its contents
@@ -34,20 +35,24 @@ A hierarchical visual organization tool for managing ideas, concepts, and their 
 ### Setup
 
 1. **Clone the repository:**
+
    ```bash
    git clone <repository-url>
    cd Pods
    ```
 
 2. **Verify Python installation:**
+
    ```bash
    python --version
    ```
 
 3. **Verify tkinter is available:**
+
    ```bash
    python -m tkinter
    ```
+
    This should open a small test window. If it doesn't, you may need to install tkinter:
    - **Ubuntu/Debian**: `sudo apt-get install python3-tk`
    - **Fedora**: `sudo dnf install python3-tkinter`
@@ -55,6 +60,7 @@ A hierarchical visual organization tool for managing ideas, concepts, and their 
    - **Windows**: tkinter comes with standard Python installation
 
 4. **Run the application:**
+
    ```bash
    python main.py
    ```
@@ -68,19 +74,23 @@ When you launch Pods, you'll see the Main pod with several example pods already 
 ### Basic Operations
 
 **Creating Pods:**
+
 - Click the "+ Add Pod" button in the toolbar
 - A new Pod will appear at a random position in the current container
 
 **Moving Pods:**
+
 - Click and drag any Pod to reposition it
 - Click empty space and drag to pan the entire canvas
 
 **Resizing Pods:**
+
 1. Select a Pod by clicking it (it will show a blue outline)
 2. Drag any of the 8 resize handles (corners or edges)
 3. The cursor will change to indicate resize direction
 
 **Creating Relationships:**
+
 1. Select a Pod by clicking it
 2. Click one of the green plus (+) buttons on the cardinal directions (N, S, E, W)
 3. Your cursor will change to a crosshair
@@ -88,11 +98,13 @@ When you launch Pods, you'll see the Main pod with several example pods already 
 5. Press ESC to cancel relationship creation
 
 **Navigating the Hierarchy:**
+
 - Double-click any Pod to enter it and view its contents
 - Click the "← Back" button to return to the parent Pod
 - The current location is shown in the toolbar
 
 **Editing Pods:**
+
 1. Right-click a Pod to open the context menu
 2. Select "Edit Name" to change the Pod's name
 3. Check "Show Description" to enable description mode
@@ -100,6 +112,7 @@ When you launch Pods, you'll see the Main pod with several example pods already 
    - Select "Edit Description" to add detailed notes
 
 **Editing Relationships:**
+
 1. Click a relationship line to select it (it will turn blue and thicker)
 2. Right-click the selected relationship
 3. Choose "Edit Label" to change the relationship type (e.g., "owns", "manages")
@@ -108,18 +121,22 @@ When you launch Pods, you'll see the Main pod with several example pods already 
 ### File Operations
 
 **New Project (Ctrl+N):**
+
 - Creates a fresh empty project
 - Prompts for confirmation if there are unsaved changes
 
 **Open Project (Ctrl+O):**
+
 - Load a previously saved project from a .json file
 - Prompts for confirmation if there are unsaved changes
 
 **Save Project (Ctrl+S):**
+
 - Saves to the current file
 - If the project hasn't been saved before, prompts for a location
 
 **Save As (Ctrl+Shift+S):**
+
 - Save the current project to a new file location
 
 ## Project Structure
@@ -201,4 +218,4 @@ This project is licensed under the GNU General Public License v3.0 - see the [LI
 
 ## Author
 
-Ian Sodersjerna (iansodersjerna@gmail.com)
+Ian Sodersjerna (<iansodersjerna@gmail.com>)

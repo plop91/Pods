@@ -61,7 +61,7 @@ class PodsApp:
         self.create_example_data()
 
         # Delay initial render until window is fully displayed and canvas has correct dimensions
-        self.root.after(10, self.render)
+        self.root.after(100, self.initial_render)
 
     def setup_ui(self):
         """Setup the user interface."""
@@ -143,6 +143,23 @@ class PodsApp:
         sub_pod2 = Pod("Feature B", x=350, y=150, width=100, height=60, shape="oval")
         pod1.add_child(sub_pod1)
         pod1.add_child(sub_pod2)
+
+    def initial_render(self):
+        """Perform initial render after ensuring canvas has correct dimensions."""
+        # Force the window to update and calculate proper sizes
+        self.root.update_idletasks()
+
+        # Check if canvas has reasonable dimensions
+        canvas_width = self.canvas.winfo_width()
+        canvas_height = self.canvas.winfo_height()
+
+        # If canvas is still too small, wait a bit longer
+        if canvas_width < 100 or canvas_height < 100:
+            self.root.after(50, self.initial_render)
+            return
+
+        # Now render with proper dimensions
+        self.render()
 
     def render(self):
         """Render the current view."""
@@ -974,6 +991,9 @@ class PodsApp:
             if pod.has_description:
                 menu.add_command(label="Edit Description", command=lambda: self.edit_pod_description(pod))
 
+            menu.add_separator()
+            menu.add_command(label="Delete Pod", command=lambda: self.delete_pod(pod))
+
             # Display menu at cursor position
             try:
                 menu.tk_popup(event.x_root, event.y_root)
@@ -987,6 +1007,29 @@ class PodsApp:
                 menu = tk.Menu(self.root, tearoff=0)
                 menu.add_command(label="Edit Label", command=lambda: self.edit_relationship_label(relationship))
                 menu.add_command(label="Edit Description", command=lambda: self.edit_relationship_description(relationship))
+                menu.add_separator()
+                menu.add_command(label="Delete Relationship", command=lambda: self.delete_relationship(relationship))
+
+                # Display menu at cursor position
+                try:
+                    menu.tk_popup(event.x_root, event.y_root)
+                finally:
+                    menu.grab_release()
+            else:
+                # Right-clicked on empty space
+                menu = tk.Menu(self.root, tearoff=0)
+                menu.add_command(label="Add Oval Pod", command=lambda: self.add_pod_at_position(event.x, event.y, "oval"))
+                menu.add_command(label="Add Rectangle Pod", command=lambda: self.add_pod_at_position(event.x, event.y, "rectangle"))
+                menu.add_separator()
+                menu.add_command(label="Reset View (Pan & Zoom)", command=self.reset_view)
+
+                # Add delete options if something is selected
+                if self.selected_pod:
+                    menu.add_separator()
+                    menu.add_command(label=f"Delete '{self.selected_pod.name}'", command=lambda: self.delete_pod(self.selected_pod))
+                elif self.selected_relationship:
+                    menu.add_separator()
+                    menu.add_command(label="Delete Selected Relationship", command=lambda: self.delete_relationship(self.selected_relationship))
 
                 # Display menu at cursor position
                 try:
@@ -1307,6 +1350,82 @@ class PodsApp:
         )
 
         self.current_container.add_child(new_pod)
+        self.render()
+
+    def add_pod_at_position(self, canvas_x: float, canvas_y: float, shape: str = "oval"):
+        """Add a new pod at a specific canvas position."""
+        # Convert canvas coordinates to world coordinates
+        canvas_width = self.canvas.winfo_width()
+        canvas_height = self.canvas.winfo_height()
+        offset_x = canvas_width / 2 + self.pan_offset_x
+        offset_y = canvas_height / 2 + self.pan_offset_y
+
+        world_x = (canvas_x - offset_x) / self.zoom_scale
+        world_y = (canvas_y - offset_y) / self.zoom_scale
+
+        # Create new pod at the clicked position
+        new_pod = Pod(
+            f"New Pod {len(self.current_container.children) + 1}",
+            x=world_x, y=world_y,
+            width=120, height=70,
+            shape=shape
+        )
+
+        self.current_container.add_child(new_pod)
+        self.render()
+
+    def reset_view(self):
+        """Reset pan offset and zoom to default values."""
+        self.pan_offset_x = 0
+        self.pan_offset_y = 0
+        self.zoom_scale = 1.0
+        self.render()
+
+    def delete_pod(self, pod: Pod):
+        """Delete a pod and all its relationships."""
+        # Confirm deletion
+        response = messagebox.askyesno(
+            "Delete Pod",
+            f"Are you sure you want to delete '{pod.name}'?\nThis will also delete all relationships connected to it."
+        )
+        if not response:
+            return
+
+        # Remove all relationships connected to this pod
+        self.relationships = [
+            rel for rel in self.relationships
+            if rel.source != pod and rel.target != pod
+        ]
+
+        # Remove pod from parent
+        if pod.parent:
+            pod.parent.remove_child(pod)
+
+        # Deselect if this was the selected pod
+        if self.selected_pod == pod:
+            self.selected_pod = None
+
+        self.render()
+
+    def delete_relationship(self, relationship: Relationship):
+        """Delete a relationship."""
+        # Confirm deletion
+        label_text = relationship.label if relationship.label else "this relationship"
+        response = messagebox.askyesno(
+            "Delete Relationship",
+            f"Are you sure you want to delete {label_text}?"
+        )
+        if not response:
+            return
+
+        # Remove relationship
+        if relationship in self.relationships:
+            self.relationships.remove(relationship)
+
+        # Deselect if this was the selected relationship
+        if self.selected_relationship == relationship:
+            self.selected_relationship = None
+
         self.render()
 
     def build_pod_lookup(self, pod: Pod, lookup: Dict[str, Pod]):
