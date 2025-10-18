@@ -807,6 +807,7 @@ class PodsApp:
                 self.relationship_source_pod = self.selected_pod
                 self.relationship_source_direction = rel_button
                 self.canvas.config(cursor="crosshair")
+                self.render()  # Re-render to show external link zone and hint
                 return
 
             # Check if clicking on a resize handle of the selected pod
