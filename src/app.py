@@ -89,6 +89,10 @@ class PodsApp:
         self.max_recent_files = 10
         self.load_recent_files()
 
+        # Dark mode
+        self.dark_mode = False
+        self.load_preferences()
+
         # Setup UI
         self.setup_ui()
 
@@ -204,6 +208,13 @@ class PodsApp:
         # Minimap toggle
         ttk.Button(toolbar, text="Minimap", command=self.toggle_minimap).pack(side=tk.LEFT, padx=5)
 
+        # Separator
+        ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5)
+
+        # Dark mode toggle
+        self.dark_mode_var = tk.BooleanVar(value=self.dark_mode)
+        ttk.Checkbutton(toolbar, text="Dark Mode", variable=self.dark_mode_var, command=self.toggle_dark_mode).pack(side=tk.LEFT, padx=2)
+
         # Status label (autosave indicator)
         self.status_label = ttk.Label(toolbar, text="", foreground="#666")
         self.status_label.pack(side=tk.RIGHT, padx=5)
@@ -281,6 +292,10 @@ class PodsApp:
         offset_x = canvas_width / 2 + self.pan_offset_x
         offset_y = canvas_height / 2 + self.pan_offset_y
 
+        # Set canvas background based on dark mode
+        bg_color = "#1E1E1E" if self.dark_mode else "white"
+        self.canvas.config(bg=bg_color)
+
         # Render grid if enabled
         if self.show_grid:
             self.render_grid(canvas_width, canvas_height, offset_x, offset_y)
@@ -300,10 +315,11 @@ class PodsApp:
         # Render relationship creation indicator if in creation mode
         if self.creating_relationship and self.relationship_source_pod:
             # Draw instruction text (not affected by zoom)
+            text_color = "#4ADE80" if self.dark_mode else "#27AE60"  # Lighter green for dark mode
             self.canvas.create_text(
                 offset_x, 20,
                 text="Click on a pod to create a relationship",
-                fill="#27AE60",
+                fill=text_color,
                 font=("Arial", 12, "bold"),
                 tags=("relationship_creation_hint",)
             )
@@ -357,6 +373,9 @@ class PodsApp:
             )
 
         # Draw text and description if enabled
+        # Use light text in dark mode for better contrast
+        text_color = "#FFFFFF" if self.dark_mode else pod.text_color
+
         if pod.has_description:
             # Calculate separator position (30% from top for name section)
             separator_y = y1 + (y2 - y1) * 0.3
@@ -367,15 +386,16 @@ class PodsApp:
             self.canvas.create_text(
                 pod.x * self.zoom_scale + offset_x, name_y,
                 text=pod.name,
-                fill=pod.text_color,
+                fill=text_color,
                 font=("Arial", 10, "bold"),
                 tags=("pod", pod.id)
             )
 
             # Draw separator line
+            separator_color = "#666666" if self.dark_mode else "#95A5A6"
             self.canvas.create_line(
                 x1 + 5, separator_y, x2 - 5, separator_y,
-                fill="#95A5A6",
+                fill=separator_color,
                 width=1,
                 tags=("pod", pod.id)
             )
@@ -388,7 +408,7 @@ class PodsApp:
                 self.canvas.create_text(
                     pod.x * self.zoom_scale + offset_x, desc_y,
                     text=wrapped_text,
-                    fill=pod.text_color,
+                    fill=text_color,
                     font=("Arial", 8),
                     width=max_width,
                     tags=("pod", pod.id)
@@ -398,17 +418,18 @@ class PodsApp:
             self.canvas.create_text(
                 pod.x * self.zoom_scale + offset_x, pod.y * self.zoom_scale + offset_y,
                 text=pod.name,
-                fill=pod.text_color,
+                fill=text_color,
                 font=("Arial", 10),
                 tags=("pod", pod.id)
             )
 
         # Draw indicator if pod has children
         if pod.children:
+            indicator_color = "#AAAAAA" if self.dark_mode else "#7F8C8D"
             self.canvas.create_text(
                 pod.x * self.zoom_scale + offset_x, y2 - 5,
                 text="⋯",
-                fill="#7F8C8D",
+                fill=indicator_color,
                 font=("Arial", 8),
                 tags=("pod", pod.id)
             )
@@ -1961,16 +1982,19 @@ class PodsApp:
         start_x = (offset_x % grid_size_zoomed)
         start_y = (offset_y % grid_size_zoomed)
 
+        # Use appropriate grid color for dark mode
+        grid_color = "#404040" if self.dark_mode else "#E0E0E0"
+
         # Draw vertical lines
         x = start_x
         while x < canvas_width:
-            self.canvas.create_line(x, 0, x, canvas_height, fill="#E0E0E0", tags=("grid",))
+            self.canvas.create_line(x, 0, x, canvas_height, fill=grid_color, tags=("grid",))
             x += grid_size_zoomed
 
         # Draw horizontal lines
         y = start_y
         while y < canvas_height:
-            self.canvas.create_line(0, y, canvas_width, y, fill="#E0E0E0", tags=("grid",))
+            self.canvas.create_line(0, y, canvas_width, y, fill=grid_color, tags=("grid",))
             y += grid_size_zoomed
 
     def toggle_grid(self):
@@ -1981,6 +2005,16 @@ class PodsApp:
     def toggle_snap(self):
         """Toggle snap to grid."""
         self.snap_to_grid = self.snap_var.get()
+
+    def toggle_dark_mode(self):
+        """Toggle dark mode."""
+        self.dark_mode = self.dark_mode_var.get()
+        self.save_preferences()
+        self.render()
+
+        # Update minimap if visible
+        if self.show_minimap and self.minimap_window and self.minimap_window.winfo_exists():
+            self.render_minimap()
 
     def snap_to_grid_coord(self, coord: float) -> float:
         """Snap a coordinate to the nearest grid point."""
@@ -2452,6 +2486,28 @@ class PodsApp:
 
         except Exception as e:
             messagebox.showerror("Export Failed", f"Could not export to PNG:\n{str(e)}\n\nNote: PNG export requires Pillow (pip install pillow)")
+
+    def load_preferences(self):
+        """Load user preferences from config file."""
+        try:
+            import os
+            config_path = os.path.expanduser("~/.pods_config.json")
+            if os.path.exists(config_path):
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    self.dark_mode = data.get("dark_mode", False)
+        except Exception as e:
+            print(f"Could not load preferences: {e}")
+
+    def save_preferences(self):
+        """Save user preferences to config file."""
+        try:
+            import os
+            config_path = os.path.expanduser("~/.pods_config.json")
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump({"dark_mode": self.dark_mode}, f, indent=2)
+        except Exception as e:
+            print(f"Could not save preferences: {e}")
 
     def load_recent_files(self):
         """Load recent files list from config file."""
