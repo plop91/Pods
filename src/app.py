@@ -1,7 +1,7 @@
 """Main application window with canvas and interaction handling."""
 
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, colorchooser
+from tkinter import ttk, filedialog, messagebox
 from typing import List, Optional, Dict
 import math
 import json
@@ -11,6 +11,9 @@ from .pod import Pod
 from .relationship import Relationship
 from .persistence.file_manager import FileManager
 from .persistence.state_manager import StateManager
+from .features.search import SearchManager
+from .features.minimap import MinimapManager
+from .features.color_picker import ColorPickerManager
 
 
 class PodsApp:
@@ -66,20 +69,11 @@ class PodsApp:
         self.snap_to_grid = False
         self.grid_size = 20  # Grid spacing in pixels
 
-        # Search state
-        self.search_dialog: Optional[tk.Toplevel] = None
-        self.search_results: List[tuple] = []  # List of (pod, path_string) tuples
-        self.search_result_index = 0
-
         # Autosave settings
         self.autosave_enabled = True
         self.autosave_interval = 300000  # 5 minutes in milliseconds
         self.autosave_timer_id = None
         self.last_autosave_time = 0
-
-        # Minimap state
-        self.minimap_window: Optional[tk.Toplevel] = None
-        self.show_minimap = False
 
         # Recent files
         self.recent_files: List[str] = []
@@ -98,6 +92,9 @@ class PodsApp:
         # Initialize managers
         self.file_manager = FileManager(self)
         self.state_manager = StateManager(self)
+        self.search_manager = SearchManager(self)
+        self.minimap_manager = MinimapManager(self)
+        self.color_picker_manager = ColorPickerManager(self)
 
         # Setup UI
         self.setup_ui()
@@ -157,7 +154,7 @@ class PodsApp:
         self.root.bind("<Control-v>", lambda e: self.paste_pod())
         self.root.bind("<Delete>", lambda e: self.delete_selected())
         self.root.bind("<BackSpace>", lambda e: self.delete_selected())
-        self.root.bind("<Control-f>", lambda e: self.open_search_dialog())
+        self.root.bind("<Control-f>", lambda e: self.search_manager.open_search_dialog())
         self.root.bind("<Control-a>", lambda e: self.select_all())
         self.root.bind("<Control-d>", lambda e: self.duplicate_selected())
 
@@ -212,7 +209,7 @@ class PodsApp:
         ttk.Checkbutton(toolbar, text="Snap to Grid", variable=self.snap_var, command=self.toggle_snap).pack(side=tk.LEFT, padx=2)
 
         # Minimap toggle
-        ttk.Button(toolbar, text="Minimap", command=self.toggle_minimap).pack(side=tk.LEFT, padx=5)
+        ttk.Button(toolbar, text="Minimap", command=self.minimap_manager.toggle_minimap).pack(side=tk.LEFT, padx=5)
 
         # Separator
         ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5)
@@ -322,8 +319,8 @@ class PodsApp:
         self.render_ghost_pods()
 
         # Update minimap if visible
-        if self.show_minimap and self.minimap_window and self.minimap_window.winfo_exists():
-            self.render_minimap()
+        if self.minimap_manager.show_minimap and self.minimap_manager.minimap_window and self.minimap_manager.minimap_window.winfo_exists():
+            self.minimap_manager.render_minimap()
 
         # Render relationship creation indicator if in creation mode
         if self.creating_relationship and self.relationship_source_pod:
@@ -1529,10 +1526,10 @@ class PodsApp:
             for color_name, color_hex in color_presets:
                 color_menu.add_command(
                     label=color_name,
-                    command=lambda c=color_hex, p=pod: self.set_pod_color(p, c)
+                    command=lambda c=color_hex, p=pod: self.color_picker_manager.set_pod_color(p, c)
                 )
 
-            menu.add_command(label="Custom Color...", command=lambda: self.change_pod_color(pod))
+            menu.add_command(label="Custom Color...", command=lambda: self.color_picker_manager.change_pod_color(pod))
             menu.add_separator()
             menu.add_command(label="Delete Pod", command=lambda: self.delete_pod(pod))
 
@@ -1678,31 +1675,6 @@ class PodsApp:
         else:
             self.render()
 
-    def set_pod_color(self, pod: Pod, color: str):
-        """Set pod color to a specific color."""
-        # Save state for undo
-        self.state_manager.save_state()
-
-        # Update pod color
-        pod.color = color
-        self.render()
-
-    def change_pod_color(self, pod: Pod):
-        """Open color picker to change pod color."""
-        # Open color chooser with current color
-        color = colorchooser.askcolor(
-            color=pod.color,
-            title="Choose Pod Color",
-            parent=self.root
-        )
-
-        if color and color[1]:  # color is ((r,g,b), '#RRGGBB')
-            # Save state for undo
-            self.state_manager.save_state()
-
-            # Update pod color
-            pod.color = color[1]
-            self.render()
 
     def edit_relationship_label(self, relationship: Relationship):
         """Open dialog to edit relationship label."""
@@ -2243,8 +2215,8 @@ class PodsApp:
         self.render()
 
         # Update minimap if visible
-        if self.show_minimap and self.minimap_window and self.minimap_window.winfo_exists():
-            self.render_minimap()
+        if self.minimap_manager.show_minimap and self.minimap_manager.minimap_window and self.minimap_manager.minimap_window.winfo_exists():
+            self.minimap_manager.render_minimap()
 
     def snap_to_grid_coord(self, coord: float) -> float:
         """Snap a coordinate to the nearest grid point."""
@@ -2252,196 +2224,6 @@ class PodsApp:
             return coord
         return round(coord / self.grid_size) * self.grid_size
 
-    def open_search_dialog(self):
-        """Open the search dialog to find pods."""
-        # If dialog already exists, just focus it
-        if self.search_dialog and self.search_dialog.winfo_exists():
-            self.search_dialog.focus()
-            return
-
-        # Create search dialog
-        self.search_dialog = tk.Toplevel(self.root)
-        self.search_dialog.title("Search Pods")
-        self.search_dialog.geometry("450x400")
-        self.search_dialog.transient(self.root)
-
-        # Position near top-right of main window
-        self.search_dialog.update_idletasks()
-        x = self.root.winfo_x() + self.root.winfo_width() - 470
-        y = self.root.winfo_y() + 50
-        self.search_dialog.geometry(f"+{x}+{y}")
-
-        # Search entry frame
-        search_frame = tk.Frame(self.search_dialog)
-        search_frame.pack(padx=10, pady=10, fill=tk.X)
-
-        tk.Label(search_frame, text="Search:").pack(side=tk.LEFT, padx=(0, 5))
-        search_entry = tk.Entry(search_frame, width=30)
-        search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
-        search_entry.focus()
-
-        # Search in current container or all toggle
-        search_scope_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(search_frame, text="All", variable=search_scope_var,
-                       command=lambda: self.perform_search(search_entry.get(), search_scope_var.get(), results_listbox, count_label)).pack(side=tk.LEFT)
-
-        # Results count label
-        count_label = tk.Label(self.search_dialog, text="0 results", fg="#666")
-        count_label.pack(padx=10, pady=(0, 5))
-
-        # Results listbox with scrollbar
-        results_frame = tk.Frame(self.search_dialog)
-        results_frame.pack(padx=10, pady=5, fill=tk.BOTH, expand=True)
-
-        scrollbar = tk.Scrollbar(results_frame)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        results_listbox = tk.Listbox(results_frame, yscrollcommand=scrollbar.set, font=("Arial", 10))
-        results_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.config(command=results_listbox.yview)
-
-        # Bind search entry to perform search as user types
-        def on_search_change(*args):
-            self.perform_search(search_entry.get(), search_scope_var.get(), results_listbox, count_label)
-
-        search_entry.bind("<KeyRelease>", on_search_change)
-
-        # Bind double-click and Enter to navigate to result
-        def on_result_select(event=None):
-            selection = results_listbox.curselection()
-            if selection and self.search_results:
-                idx = selection[0]
-                self.navigate_to_search_result(idx)
-
-        results_listbox.bind("<Double-Button-1>", on_result_select)
-        results_listbox.bind("<Return>", on_result_select)
-
-        # Navigation buttons
-        button_frame = tk.Frame(self.search_dialog)
-        button_frame.pack(padx=10, pady=10, fill=tk.X)
-
-        def go_previous():
-            if self.search_results:
-                self.search_result_index = (self.search_result_index - 1) % len(self.search_results)
-                results_listbox.selection_clear(0, tk.END)
-                results_listbox.selection_set(self.search_result_index)
-                results_listbox.see(self.search_result_index)
-                self.navigate_to_search_result(self.search_result_index)
-
-        def go_next():
-            if self.search_results:
-                self.search_result_index = (self.search_result_index + 1) % len(self.search_results)
-                results_listbox.selection_clear(0, tk.END)
-                results_listbox.selection_set(self.search_result_index)
-                results_listbox.see(self.search_result_index)
-                self.navigate_to_search_result(self.search_result_index)
-
-        ttk.Button(button_frame, text="Previous", command=go_previous).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="Next", command=go_next).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="Close", command=self.search_dialog.destroy).pack(side=tk.RIGHT, padx=5)
-
-        # Bind Escape to close
-        self.search_dialog.bind("<Escape>", lambda e: self.search_dialog.destroy())
-
-        # Perform initial search if there's any text
-        if search_entry.get():
-            self.perform_search(search_entry.get(), search_scope_var.get(), results_listbox, count_label)
-
-    def perform_search(self, query: str, search_all: bool, results_listbox: tk.Listbox, count_label: tk.Label):
-        """Perform search and update results listbox."""
-        results_listbox.delete(0, tk.END)
-        self.search_results.clear()
-        self.search_result_index = 0
-
-        if not query:
-            count_label.config(text="0 results")
-            return
-
-        # Convert query to lowercase for case-insensitive search
-        query_lower = query.lower()
-
-        # Determine search root
-        search_root = self.main_pod if search_all else self.current_container
-
-        # Recursively search for matching pods
-        def search_pods(pod: Pod, path: str = ""):
-            current_path = f"{path}/{pod.name}" if path else pod.name
-
-            # Check if this pod matches
-            if query_lower in pod.name.lower():
-                # Don't include the search root itself in results
-                if pod != search_root:
-                    self.search_results.append((pod, current_path))
-
-            # Search children
-            for child in pod.children:
-                search_pods(child, current_path)
-
-        # Perform search
-        search_pods(search_root)
-
-        # Populate results listbox
-        for pod, path in self.search_results:
-            results_listbox.insert(tk.END, path)
-
-        # Update count label
-        count = len(self.search_results)
-        count_label.config(text=f"{count} result{'s' if count != 1 else ''}")
-
-        # Auto-select first result
-        if self.search_results:
-            results_listbox.selection_set(0)
-
-    def navigate_to_search_result(self, index: int):
-        """Navigate to a search result and select the pod."""
-        if not self.search_results or index >= len(self.search_results):
-            return
-
-        target_pod, path = self.search_results[index]
-
-        # Build navigation path to the pod
-        nav_path = []
-        current = target_pod.parent
-        while current and current != self.main_pod:
-            nav_path.insert(0, current)
-            current = current.parent
-
-        # Navigate to the pod's container
-        if target_pod.parent:
-            # Clear current navigation history
-            self.navigation_history.clear()
-
-            # Build new navigation history
-            current = self.main_pod
-            for container in nav_path:
-                self.navigation_history.append(current)
-                current = container
-
-            if nav_path:
-                self.current_container = nav_path[-1]
-            else:
-                # Pod is directly in main
-                self.current_container = self.main_pod
-
-            # Update UI
-            self.nav_label.config(text=f"Current: {self.current_container.name}")
-            self.back_button.config(state=tk.NORMAL if self.navigation_history else tk.DISABLED)
-
-            # Clear all selections
-            for p in self.selected_pods:
-                p.selected = False
-            self.selected_pods.clear()
-
-            # Select the target pod
-            target_pod.selected = True
-            self.selected_pod = target_pod
-            self.selected_pods = [target_pod]
-
-            # Reset view
-            self.pan_offset_x = 0
-            self.pan_offset_y = 0
-
-            self.render()
 
     def schedule_autosave(self):
         """Schedule the next autosave."""
@@ -2483,181 +2265,6 @@ class PodsApp:
         # Schedule next autosave
         self.schedule_autosave()
 
-    def toggle_minimap(self):
-        """Toggle minimap window visibility."""
-        if self.minimap_window and self.minimap_window.winfo_exists():
-            self.minimap_window.destroy()
-            self.minimap_window = None
-            self.show_minimap = False
-        else:
-            self.show_minimap_window()
-
-    def show_minimap_window(self):
-        """Create and show the minimap window."""
-        self.minimap_window = tk.Toplevel(self.root)
-        self.minimap_window.title("Minimap")
-        self.minimap_window.geometry("250x250")
-        self.minimap_window.attributes('-topmost', True)
-
-        # Position at bottom-right of main window
-        self.minimap_window.update_idletasks()
-        x = self.root.winfo_x() + self.root.winfo_width() - 270
-        y = self.root.winfo_y() + self.root.winfo_height() - 300
-        self.minimap_window.geometry(f"+{x}+{y}")
-
-        # Create canvas for minimap
-        self.minimap_canvas = tk.Canvas(self.minimap_window, bg="white", highlightthickness=1, highlightbackground="#999")
-        self.minimap_canvas.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-
-        # Render minimap
-        self.render_minimap()
-
-        # Bind click to navigate
-        self.minimap_canvas.bind("<Button-1>", self.on_minimap_click)
-
-        # Update minimap when main canvas is rendered
-        self.show_minimap = True
-
-    def render_minimap(self):
-        """Render the minimap showing all pods in current container."""
-        if not self.minimap_window or not self.minimap_window.winfo_exists():
-            return
-
-        self.minimap_canvas.delete("all")
-
-        if not self.current_container.children:
-            return
-
-        # Get minimap canvas size
-        mm_width = self.minimap_canvas.winfo_width()
-        mm_height = self.minimap_canvas.winfo_height()
-
-        if mm_width < 10 or mm_height < 10:
-            return
-
-        # Calculate bounding box of all pods
-        min_x = min(pod.x - pod.width / 2 for pod in self.current_container.children)
-        max_x = max(pod.x + pod.width / 2 for pod in self.current_container.children)
-        min_y = min(pod.y - pod.height / 2 for pod in self.current_container.children)
-        max_y = max(pod.y + pod.height / 2 for pod in self.current_container.children)
-
-        # Add padding
-        padding = 50
-        min_x -= padding
-        max_x += padding
-        min_y -= padding
-        max_y += padding
-
-        # Calculate scale to fit everything
-        world_width = max_x - min_x
-        world_height = max_y - min_y
-
-        if world_width == 0 or world_height == 0:
-            return
-
-        scale_x = mm_width / world_width
-        scale_y = mm_height / world_height
-        scale = min(scale_x, scale_y) * 0.9  # Use 90% to leave some margin
-
-        # Transform function
-        def world_to_minimap(wx, wy):
-            mx = (wx - min_x) * scale
-            my = (wy - min_y) * scale
-            return mx, my
-
-        # Draw relationships
-        for rel in self.relationships:
-            # Only draw relationships in current container
-            if rel.source.parent == self.current_container and rel.target.parent == self.current_container:
-                x1, y1 = world_to_minimap(rel.source.x, rel.source.y)
-                x2, y2 = world_to_minimap(rel.target.x, rel.target.y)
-                self.minimap_canvas.create_line(x1, y1, x2, y2, fill="#999", width=1)
-
-        # Draw pods
-        for pod in self.current_container.children:
-            x1, y1, x2, y2 = pod.get_bounds()
-            mx1, my1 = world_to_minimap(x1, y1)
-            mx2, my2 = world_to_minimap(x2, y2)
-
-            # Use pod color but slightly darker
-            color = pod.color if not pod.selected else "#3498DB"
-            self.minimap_canvas.create_rectangle(
-                mx1, my1, mx2, my2,
-                fill=color,
-                outline="#666",
-                width=1
-            )
-
-        # Draw viewport indicator
-        canvas_width = self.canvas.winfo_width()
-        canvas_height = self.canvas.winfo_height()
-
-        # Calculate viewport in world coordinates
-        offset_x = canvas_width / 2 + self.pan_offset_x
-        offset_y = canvas_height / 2 + self.pan_offset_y
-
-        viewport_world_x1 = -offset_x / self.zoom_scale
-        viewport_world_y1 = -offset_y / self.zoom_scale
-        viewport_world_x2 = (canvas_width - offset_x) / self.zoom_scale
-        viewport_world_y2 = (canvas_height - offset_y) / self.zoom_scale
-
-        # Transform to minimap coordinates
-        vp_x1, vp_y1 = world_to_minimap(viewport_world_x1, viewport_world_y1)
-        vp_x2, vp_y2 = world_to_minimap(viewport_world_x2, viewport_world_y2)
-
-        # Draw viewport rectangle
-        self.minimap_canvas.create_rectangle(
-            vp_x1, vp_y1, vp_x2, vp_y2,
-            outline="#FF0000",
-            width=2,
-            tags=("viewport",)
-        )
-
-    def on_minimap_click(self, event):
-        """Handle click on minimap to pan viewport."""
-        if not self.current_container.children:
-            return
-
-        mm_width = self.minimap_canvas.winfo_width()
-        mm_height = self.minimap_canvas.winfo_height()
-
-        # Calculate bounding box (same as in render_minimap)
-        min_x = min(pod.x - pod.width / 2 for pod in self.current_container.children)
-        max_x = max(pod.x + pod.width / 2 for pod in self.current_container.children)
-        min_y = min(pod.y - pod.height / 2 for pod in self.current_container.children)
-        max_y = max(pod.y + pod.height / 2 for pod in self.current_container.children)
-
-        padding = 50
-        min_x -= padding
-        max_x += padding
-        min_y -= padding
-        max_y += padding
-
-        world_width = max_x - min_x
-        world_height = max_y - min_y
-
-        if world_width == 0 or world_height == 0:
-            return
-
-        scale_x = mm_width / world_width
-        scale_y = mm_height / world_height
-        scale = min(scale_x, scale_y) * 0.9
-
-        # Convert minimap click to world coordinates
-        world_x = (event.x / scale) + min_x
-        world_y = (event.y / scale) + min_y
-
-        # Center viewport on this world position
-        canvas_width = self.canvas.winfo_width()
-        canvas_height = self.canvas.winfo_height()
-
-        # Calculate pan offset to center on clicked position
-        self.pan_offset_x = -(world_x * self.zoom_scale - canvas_width / 2)
-        self.pan_offset_y = -(world_y * self.zoom_scale - canvas_height / 2)
-
-        self.render()
-        if self.show_minimap:
-            self.render_minimap()
 
     def export_to_png(self):
         """Export the current view to a PNG file."""
