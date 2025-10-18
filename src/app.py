@@ -471,11 +471,17 @@ class PodsApp:
 
     def render_relationship(self, rel: Relationship, offset_x: float, offset_y: float):
         """Render a relationship line between pods."""
-        # Check if source is in current container
-        source_in_container = (rel.source.parent == self.current_container or rel.source == self.current_container)
-        target_in_container = (rel.target.parent == self.current_container or rel.target == self.current_container)
+        # Don't render relationships where either end is the current container itself
+        # (we're inside that container, so we don't want to see its connections to the outside)
+        if rel.source == self.current_container or rel.target == self.current_container:
+            return
 
-        # Only render if at least one end is in the current container
+        # Check if source is a child of the current container
+        source_in_container = rel.source.parent == self.current_container
+        # Check if target is a child of the current container
+        target_in_container = rel.target.parent == self.current_container
+
+        # Only render if at least one end is a child of the current container
         if not source_in_container and not target_in_container:
             return
 
@@ -613,10 +619,15 @@ class PodsApp:
 
         # Check all relationships
         for rel in self.relationships:
-            # Only check relationships in the current container
-            if (rel.source.parent != self.current_container and rel.source != self.current_container):
+            # Skip relationships where either end is the current container itself
+            if rel.source == self.current_container or rel.target == self.current_container:
                 continue
-            if (rel.target.parent != self.current_container and rel.target != self.current_container):
+
+            # Only check relationships where at least one end is a child of the current container
+            source_in_container = rel.source.parent == self.current_container
+            target_in_container = rel.target.parent == self.current_container
+
+            if not source_in_container and not target_in_container:
                 continue
 
             x1, y1, x2, y2 = rel.get_endpoints()
