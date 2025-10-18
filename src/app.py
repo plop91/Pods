@@ -95,7 +95,8 @@ class PodsApp:
 
         # Ghost pods (external pods shown in current view)
         self.ghost_pods: List[Pod] = []
-        self.ghost_positions: dict = {}  # Maps pod ID to (x, y) canvas position
+        self.ghost_positions: dict = {}  # Maps (container_id, ghost_pod_id) to (x, y) world coordinates
+        self.selected_ghost: Optional[Pod] = None  # Currently selected ghost pod
 
         # Setup UI
         self.setup_ui()
@@ -306,7 +307,7 @@ class PodsApp:
 
         # Detect and collect ghost pods (external pods with relationships to current container)
         self.ghost_pods = self.collect_ghost_pods()
-        self.ghost_positions = self.calculate_ghost_positions(canvas_width, canvas_height)
+        self.calculate_ghost_positions(canvas_width, canvas_height)  # Modifies self.ghost_positions in place
 
         # Render relationships first (so they appear behind pods)
         for rel in self.relationships:
@@ -520,58 +521,93 @@ class PodsApp:
 
         return ghost_pods
 
-    def calculate_ghost_positions(self, canvas_width: float, canvas_height: float) -> dict:
-        """Calculate positions for ghost pods at the bottom of the canvas.
+    def calculate_ghost_positions(self, canvas_width: float, canvas_height: float):
+        """Initialize positions for ghost pods that don't have positions yet.
 
-        Returns a dictionary mapping pod IDs to (x, y) positions.
+        Uses world coordinates. Only sets positions for new ghosts that haven't been positioned yet.
         """
         if not self.ghost_pods:
-            return {}
+            return
 
-        positions = {}
-        ghost_zone_height = 80  # Height reserved for ghost pods at bottom
-        ghost_y = canvas_height - ghost_zone_height / 2  # Center vertically in ghost zone
+        # Ensure ghost_positions is initialized
+        if self.ghost_positions is None:
+            self.ghost_positions = {}
 
-        # Calculate spacing for ghost pods
-        ghost_width = 100  # Standard width for ghost pods
-        spacing = 20  # Space between ghosts
-        total_width = len(self.ghost_pods) * (ghost_width + spacing) - spacing
-        start_x = (canvas_width - total_width) / 2  # Center horizontally
+        # Find which ghosts need initial positions
+        new_ghosts = []
+        for pod in self.ghost_pods:
+            key = (self.current_container.id, pod.id)
+            if key not in self.ghost_positions:
+                new_ghosts.append(pod)
 
-        # Position each ghost pod
-        for i, pod in enumerate(self.ghost_pods):
+        if not new_ghosts:
+            return
+
+        # Calculate initial world coordinates for new ghosts
+        # Position them below the current view area
+        offset_x = canvas_width / 2 + self.pan_offset_x
+        offset_y = canvas_height / 2 + self.pan_offset_y
+
+        # Convert bottom of canvas to world coordinates
+        world_y_bottom = (canvas_height - 100 - offset_y) / self.zoom_scale
+
+        # Calculate spacing in world coordinates
+        ghost_width = 100 / self.zoom_scale
+        spacing = 20 / self.zoom_scale
+        total_width = len(new_ghosts) * (ghost_width + spacing) - spacing
+        start_x = -total_width / 2  # Center around origin
+
+        # Position each new ghost pod in world coordinates
+        for i, pod in enumerate(new_ghosts):
             x = start_x + i * (ghost_width + spacing) + ghost_width / 2
-            positions[pod.id] = (x, ghost_y)
-
-        return positions
+            key = (self.current_container.id, pod.id)
+            self.ghost_positions[key] = (x, world_y_bottom)
 
     def render_ghost_pods(self):
-        """Render ghost representations of external pods."""
-        if not self.ghost_pods:
+        """Render ghost representations of external pods using world coordinates."""
+        if not self.ghost_pods or not self.ghost_positions:
             return
+
+        # Get canvas dimensions for offset calculation
+        canvas_width = self.canvas.winfo_width()
+        canvas_height = self.canvas.winfo_height()
+        offset_x = canvas_width / 2 + self.pan_offset_x
+        offset_y = canvas_height / 2 + self.pan_offset_y
 
         ghost_width = 100
         ghost_height = 50
 
         for pod in self.ghost_pods:
-            if pod.id not in self.ghost_positions:
+            key = (self.current_container.id, pod.id)
+            if key not in self.ghost_positions:
                 continue
 
-            x, y = self.ghost_positions[pod.id]
+            # Get world coordinates
+            world_x, world_y = self.ghost_positions[key]
 
-            # Calculate bounds
-            x1 = x - ghost_width / 2
-            y1 = y - ghost_height / 2
-            x2 = x + ghost_width / 2
-            y2 = y + ghost_height / 2
+            # Apply zoom and offset transformations
+            x = world_x * self.zoom_scale + offset_x
+            y = world_y * self.zoom_scale + offset_y
+
+            # Calculate bounds (in canvas coordinates)
+            scaled_width = ghost_width * self.zoom_scale
+            scaled_height = ghost_height * self.zoom_scale
+            x1 = x - scaled_width / 2
+            y1 = y - scaled_height / 2
+            x2 = x + scaled_width / 2
+            y2 = y + scaled_height / 2
+
+            # Determine if this ghost is selected
+            is_selected = (self.selected_ghost == pod)
+            outline_color = "#3498DB" if is_selected else "#888888"
+            outline_width = 3 if is_selected else 2
 
             # Draw ghost pod with dashed border and semi-transparent appearance
-            # Use stipple pattern for semi-transparency effect
             self.canvas.create_rectangle(
                 x1, y1, x2, y2,
                 fill=pod.color,
-                outline="#888888",
-                width=2,
+                outline=outline_color,
+                width=outline_width,
                 dash=(4, 4),  # Dashed border
                 stipple="gray50",  # Semi-transparent effect
                 tags=("ghost_pod", pod.id, "clickable")
@@ -580,19 +616,19 @@ class PodsApp:
             # Draw pod name
             text_color = self.get_contrast_text_color(pod.color)
             self.canvas.create_text(
-                x, y - 8,
+                x, y - 8 * self.zoom_scale,
                 text=pod.name,
                 fill=text_color,
-                font=("Arial", 9, "bold"),
+                font=("Arial", max(7, int(9 * self.zoom_scale)), "bold"),
                 tags=("ghost_pod", pod.id)
             )
 
             # Draw "external" indicator
             self.canvas.create_text(
-                x, y + 10,
+                x, y + 10 * self.zoom_scale,
                 text="↗ external",
                 fill="#888888",
-                font=("Arial", 7, "italic"),
+                font=("Arial", max(6, int(7 * self.zoom_scale)), "italic"),
                 tags=("ghost_pod", pod.id)
             )
 
@@ -767,17 +803,19 @@ class PodsApp:
 
         # If target is external, connect to ghost pod instead of edge
         if not target_in_container:
-            if rel.target.id in self.ghost_positions:
-                ghost_x, ghost_y = self.ghost_positions[rel.target.id]
-                x2 = ghost_x
-                y2 = ghost_y
+            ghost_key = (self.current_container.id, rel.target.id)
+            if ghost_key in self.ghost_positions:
+                world_x, world_y = self.ghost_positions[ghost_key]
+                x2 = world_x * self.zoom_scale + offset_x
+                y2 = world_y * self.zoom_scale + offset_y
 
         # If source is external, connect to ghost pod instead of edge
         if not source_in_container:
-            if rel.source.id in self.ghost_positions:
-                ghost_x, ghost_y = self.ghost_positions[rel.source.id]
-                x1 = ghost_x
-                y1 = ghost_y
+            ghost_key = (self.current_container.id, rel.source.id)
+            if ghost_key in self.ghost_positions:
+                world_x, world_y = self.ghost_positions[ghost_key]
+                x1 = world_x * self.zoom_scale + offset_x
+                y1 = world_y * self.zoom_scale + offset_y
 
         # Draw line
         color = "#3498DB" if rel.selected else rel.color
@@ -908,27 +946,36 @@ class PodsApp:
         return math.sqrt((px - closest_x) ** 2 + (py - closest_y) ** 2)
 
     def get_ghost_pod_at_position(self, x: float, y: float) -> Optional[Pod]:
-        """Find the ghost pod at the given canvas position (no coordinate transformation needed)."""
+        """Find the ghost pod at the given canvas position."""
         if not self.ghost_pods or not self.ghost_positions:
             return None
+
+        # Convert canvas position to world coordinates
+        canvas_width = self.canvas.winfo_width()
+        canvas_height = self.canvas.winfo_height()
+        offset_x = canvas_width / 2 + self.pan_offset_x
+        offset_y = canvas_height / 2 + self.pan_offset_y
+        world_x = (x - offset_x) / self.zoom_scale
+        world_y = (y - offset_y) / self.zoom_scale
 
         ghost_width = 100
         ghost_height = 50
 
-        # Check all ghost pods
-        for pod in self.ghost_pods:
-            if pod.id not in self.ghost_positions:
+        # Check all ghost pods in reverse order (top ones first)
+        for pod in reversed(self.ghost_pods):
+            key = (self.current_container.id, pod.id)
+            if key not in self.ghost_positions:
                 continue
 
-            gx, gy = self.ghost_positions[pod.id]
+            gx, gy = self.ghost_positions[key]
 
-            # Check if click is within ghost bounds
+            # Check if click is within ghost bounds (in world coordinates)
             x1 = gx - ghost_width / 2
             y1 = gy - ghost_height / 2
             x2 = gx + ghost_width / 2
             y2 = gy + ghost_height / 2
 
-            if x1 <= x <= x2 and y1 <= y <= y2:
+            if x1 <= world_x <= x2 and y1 <= world_y <= y2:
                 return pod
 
         return None
@@ -1147,10 +1194,28 @@ class PodsApp:
                 self.drag_start_y = event.y
                 return
 
-        # Check if clicking on a ghost pod to navigate to it
+        # Check if clicking on a ghost pod
         ghost_pod = self.get_ghost_pod_at_position(event.x, event.y)
         if ghost_pod:
-            self.navigate_to_ghost_pod(ghost_pod)
+            # Clear regular pod selections
+            for p in self.selected_pods:
+                p.selected = False
+            self.selected_pods.clear()
+            self.selected_pod = None
+
+            # Clear relationship selection
+            if self.selected_relationship:
+                self.selected_relationship.selected = False
+                self.selected_relationship = None
+
+            # Select the ghost pod
+            self.selected_ghost = ghost_pod
+
+            # Start dragging
+            self.dragging = True
+            self.drag_start_x = event.x
+            self.drag_start_y = event.y
+            self.render()
             return
 
         pod = self.get_pod_at_position(event.x, event.y)
@@ -1159,6 +1224,9 @@ class PodsApp:
         ctrl_held = (event.state & 0x4) != 0
 
         if pod:
+            # Clear ghost selection
+            self.selected_ghost = None
+
             if ctrl_held:
                 # Multi-select mode
                 if pod in self.selected_pods:
@@ -1199,9 +1267,14 @@ class PodsApp:
                 self.selected_pods.clear()
                 self.selected_pod = None
 
+                # Clear ghost selection
+                self.selected_ghost = None
+
                 relationship.selected = True
                 self.selected_relationship = relationship
             else:
+                # Clear ghost selection when clicking on empty space
+                self.selected_ghost = None
                 # Clicking on empty space
                 if not ctrl_held:
                     # Clear all selections and start panning
@@ -1222,9 +1295,14 @@ class PodsApp:
         self.render()
 
     def on_canvas_double_click(self, event):
-        """Handle double click - enter pod to view/create children."""
-        pod = self.get_pod_at_position(event.x, event.y)
+        """Handle double click - enter pod to view/create children, or navigate to ghost pod location."""
+        # Check for ghost pod first
+        ghost_pod = self.get_ghost_pod_at_position(event.x, event.y)
+        if ghost_pod:
+            self.navigate_to_ghost_pod(ghost_pod)
+            return
 
+        pod = self.get_pod_at_position(event.x, event.y)
         if pod:
             self.navigate_into(pod)
 
@@ -1246,6 +1324,30 @@ class PodsApp:
             # Update pan offset
             self.pan_offset_x += dx
             self.pan_offset_y += dy
+
+            # Update drag start position
+            self.drag_start_x = event.x
+            self.drag_start_y = event.y
+
+            self.render()
+        elif self.dragging and self.selected_ghost:
+            # Handle dragging ghost pod
+            dx = (event.x - self.drag_start_x) / self.zoom_scale
+            dy = (event.y - self.drag_start_y) / self.zoom_scale
+
+            # Get current position
+            key = (self.current_container.id, self.selected_ghost.id)
+            if key in self.ghost_positions:
+                current_x, current_y = self.ghost_positions[key]
+                new_x = current_x + dx
+                new_y = current_y + dy
+
+                # Apply snap to grid if enabled
+                if self.snap_to_grid:
+                    new_x = self.snap_to_grid_coord(new_x)
+                    new_y = self.snap_to_grid_coord(new_y)
+
+                self.ghost_positions[key] = (new_x, new_y)
 
             # Update drag start position
             self.drag_start_x = event.x
@@ -1278,7 +1380,7 @@ class PodsApp:
     def on_canvas_release(self, event):
         """Handle mouse button release."""
         # Save state if we made changes (dragging or resizing)
-        if (self.dragging or self.resizing) and self.selected_pod:
+        if (self.dragging or self.resizing) and (self.selected_pod or self.selected_ghost):
             self.save_state()
 
         self.dragging = False
@@ -2005,12 +2107,21 @@ class PodsApp:
 
     def save_state(self):
         """Save the current state for undo/redo functionality."""
+        # Serialize ghost_positions for undo/redo (handle None case)
+        ghost_positions_copy = {}
+        if self.ghost_positions:
+            ghost_positions_copy = {
+                f"{container_id}_{ghost_id}": (x, y)
+                for (container_id, ghost_id), (x, y) in self.ghost_positions.items()
+            }
+
         # Create a snapshot of the current state
         state = {
             "main_pod": self.main_pod.to_dict(),
             "relationships": [rel.to_dict() for rel in self.relationships],
             "current_container_id": self.current_container.id,
-            "navigation_history_ids": [pod.id for pod in self.navigation_history]
+            "navigation_history_ids": [pod.id for pod in self.navigation_history],
+            "ghost_positions": ghost_positions_copy
         }
 
         # Add to undo stack
@@ -2038,6 +2149,16 @@ class PodsApp:
             for rel_data in state.get("relationships", [])
         ]
 
+        # Restore ghost positions
+        self.ghost_positions = {}
+        ghost_data = state.get("ghost_positions", {})
+        for key_str, (x, y) in ghost_data.items():
+            # Parse key string back to tuple
+            parts = key_str.split('_', 1)  # Split on first underscore only
+            if len(parts) == 2:
+                container_id, ghost_id = parts
+                self.ghost_positions[(container_id, ghost_id)] = (x, y)
+
         # Restore current container
         container_id = state.get("current_container_id")
         self.current_container = pod_lookup.get(container_id, self.main_pod)
@@ -2055,6 +2176,7 @@ class PodsApp:
         self.selected_pod = None
         self.selected_pods.clear()
         self.selected_relationship = None
+        self.selected_ghost = None
 
         self.render()
 
@@ -2917,11 +3039,19 @@ class PodsApp:
     def _save_to_file(self, file_path: str):
         """Internal method to save project to a specific file."""
         try:
+            # Convert ghost_positions dict to JSON-serializable format
+            # Keys are tuples (container_id, ghost_id), convert to strings
+            ghost_positions_serializable = {
+                f"{container_id}_{ghost_id}": {"x": x, "y": y}
+                for (container_id, ghost_id), (x, y) in self.ghost_positions.items()
+            }
+
             # Build the project data structure
             project_data = {
                 "version": "1.0",
                 "main_pod": self.main_pod.to_dict(),
-                "relationships": [rel.to_dict() for rel in self.relationships]
+                "relationships": [rel.to_dict() for rel in self.relationships],
+                "ghost_positions": ghost_positions_serializable
             }
 
             # Write to file
@@ -2981,12 +3111,23 @@ class PodsApp:
                 for rel_data in project_data.get("relationships", [])
             ]
 
+            # Deserialize ghost positions
+            self.ghost_positions = {}
+            ghost_data = project_data.get("ghost_positions", {})
+            for key_str, pos_data in ghost_data.items():
+                # Parse key string back to tuple
+                parts = key_str.split('_', 1)  # Split on first underscore only
+                if len(parts) == 2:
+                    container_id, ghost_id = parts
+                    self.ghost_positions[(container_id, ghost_id)] = (pos_data["x"], pos_data["y"])
+
             # Reset state
             self.current_container = self.main_pod
             self.navigation_history = []
             self.selected_pod = None
             self.selected_pods.clear()
             self.selected_relationship = None
+            self.selected_ghost = None
             self.current_file_path = file_path
             self.pan_offset_x = 0
             self.pan_offset_y = 0
