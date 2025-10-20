@@ -369,7 +369,7 @@ class RenderManager:
     def render_resize_handles(self, pod: 'Pod', offset_x: float, offset_y: float):
         """Render resize handles for a selected pod."""
         # Get handle positions from app.py to ensure consistency with hit detection
-        handles = self.app.get_resize_handle_positions(pod, offset_x, offset_y)
+        handles = self.app.hit_detection.get_resize_handle_positions(pod, offset_x, offset_y)
         handle_size = self.app.resize_handle_size
 
         for handle_id, (hx, hy) in handles.items():
@@ -385,7 +385,7 @@ class RenderManager:
     def render_relationship_buttons(self, pod: 'Pod', offset_x: float, offset_y: float):
         """Render the relationship creation buttons (+ buttons on each side)."""
         # Get button positions from app.py to ensure consistency with hit detection
-        buttons = self.app.get_relationship_button_positions(pod, offset_x, offset_y)
+        buttons = self.app.hit_detection.get_relationship_button_positions(pod, offset_x, offset_y)
         button_size = self.app.relationship_button_size
 
         for direction, (bx, by) in buttons.items():

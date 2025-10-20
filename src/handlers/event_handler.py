@@ -22,7 +22,7 @@ class EventHandler:
         # If in relationship creation mode, complete the relationship
         if self.app.creating_relationship:
             # Check if clicking on a ghost pod to create relationship to it
-            ghost_pod = self.app.get_ghost_pod_at_position(event.x, event.y)
+            ghost_pod = self.app.hit_detection.get_ghost_pod_at_position(event.x, event.y)
             if ghost_pod and ghost_pod != self.app.relationship_source_pod:
                 # Save state for undo
                 self.app.state_manager.save_state()
@@ -52,7 +52,7 @@ class EventHandler:
                 self.app.show_external_pod_selector()
                 return
 
-            target_pod = self.app.get_pod_at_position(event.x, event.y)
+            target_pod = self.app.hit_detection.get_pod_at_position(event.x, event.y)
             if target_pod and target_pod != self.app.relationship_source_pod:
                 # Save state for undo
                 self.app.state_manager.save_state()
@@ -76,7 +76,7 @@ class EventHandler:
 
         # Check if clicking on a relationship button of the selected pod
         if self.app.selected_pod:
-            rel_button = self.app.get_relationship_button_at_position(event.x, event.y, self.app.selected_pod)
+            rel_button = self.app.hit_detection.get_relationship_button_at_position(event.x, event.y, self.app.selected_pod)
             if rel_button:
                 # Start relationship creation mode
                 self.app.creating_relationship = True
@@ -87,7 +87,7 @@ class EventHandler:
                 return
 
             # Check if clicking on a resize handle of the selected pod
-            handle = self.app.get_resize_handle_at_position(event.x, event.y, self.app.selected_pod)
+            handle = self.app.hit_detection.get_resize_handle_at_position(event.x, event.y, self.app.selected_pod)
             if handle:
                 # Start resizing
                 self.app.resizing = True
@@ -97,7 +97,7 @@ class EventHandler:
                 return
 
         # Check if clicking on a ghost pod
-        ghost_pod = self.app.get_ghost_pod_at_position(event.x, event.y)
+        ghost_pod = self.app.hit_detection.get_ghost_pod_at_position(event.x, event.y)
         if ghost_pod:
             # Clear regular pod selections
             for p in self.app.selected_pods:
@@ -121,7 +121,7 @@ class EventHandler:
             return
 
         # Check if clicking on a relationship
-        rel = self.app.get_relationship_at_position(event.x, event.y)
+        rel = self.app.hit_detection.get_relationship_at_position(event.x, event.y)
         if rel:
             # Deselect all pods
             for p in self.app.selected_pods:
@@ -143,7 +143,7 @@ class EventHandler:
             return
 
         # Check if clicking on a pod
-        clicked_pod = self.app.get_pod_at_position(event.x, event.y)
+        clicked_pod = self.app.hit_detection.get_pod_at_position(event.x, event.y)
 
         # Deselect ghost
         self.app.selected_ghost = None
@@ -196,7 +196,7 @@ class EventHandler:
 
     def on_canvas_double_click(self, event):
         """Handle double-click on canvas (navigate into a pod)."""
-        clicked_pod = self.app.get_pod_at_position(event.x, event.y)
+        clicked_pod = self.app.hit_detection.get_pod_at_position(event.x, event.y)
         if clicked_pod:
             self.app.navigate_into(clicked_pod)
 
@@ -279,13 +279,13 @@ class EventHandler:
             pod.hovered = False
 
         # Check if hovering over a pod
-        hovered_pod = self.app.get_pod_at_position(event.x, event.y)
+        hovered_pod = self.app.hit_detection.get_pod_at_position(event.x, event.y)
         if hovered_pod:
             hovered_pod.hovered = True
 
             # Check if over resize handle
             if self.app.selected_pod:
-                handle = self.app.get_resize_handle_at_position(event.x, event.y, self.app.selected_pod)
+                handle = self.app.hit_detection.get_resize_handle_at_position(event.x, event.y, self.app.selected_pod)
                 if handle:
                     # Set cursor for resize direction
                     cursors = {
@@ -298,7 +298,7 @@ class EventHandler:
                     return
 
                 # Check if over relationship button
-                rel_button = self.app.get_relationship_button_at_position(event.x, event.y, self.app.selected_pod)
+                rel_button = self.app.hit_detection.get_relationship_button_at_position(event.x, event.y, self.app.selected_pod)
                 if rel_button:
                     self.app.canvas.config(cursor="hand2")
                     self.app.render_manager.render()
@@ -308,12 +308,12 @@ class EventHandler:
             self.app.canvas.config(cursor="hand2")
         else:
             # Check if hovering over a relationship
-            rel = self.app.get_relationship_at_position(event.x, event.y)
+            rel = self.app.hit_detection.get_relationship_at_position(event.x, event.y)
             if rel:
                 self.app.canvas.config(cursor="hand2")
             else:
                 # Check if hovering over ghost pod
-                ghost_pod = self.app.get_ghost_pod_at_position(event.x, event.y)
+                ghost_pod = self.app.hit_detection.get_ghost_pod_at_position(event.x, event.y)
                 if ghost_pod:
                     self.app.canvas.config(cursor="hand2")
                 else:
@@ -369,8 +369,8 @@ class EventHandler:
         import tkinter as tk
 
         # Check what was right-clicked
-        clicked_pod = self.app.get_pod_at_position(event.x, event.y)
-        clicked_rel = self.app.get_relationship_at_position(event.x, event.y)
+        clicked_pod = self.app.hit_detection.get_pod_at_position(event.x, event.y)
+        clicked_rel = self.app.hit_detection.get_relationship_at_position(event.x, event.y)
 
         # Create context menu
         context_menu = tk.Menu(self.app.root, tearoff=0)
