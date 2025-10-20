@@ -14,6 +14,7 @@ from .persistence.state_manager import StateManager
 from .features.search import SearchManager
 from .features.minimap import MinimapManager
 from .features.color_picker import ColorPickerManager
+from .rendering.renderer import RenderManager
 
 
 class PodsApp:
@@ -95,6 +96,7 @@ class PodsApp:
         self.search_manager = SearchManager(self)
         self.minimap_manager = MinimapManager(self)
         self.color_picker_manager = ColorPickerManager(self)
+        self.render_manager = RenderManager(self)
 
         # Setup UI
         self.setup_ui()
@@ -281,392 +283,7 @@ class PodsApp:
             return
 
         # Now render with proper dimensions
-        self.render()
-
-    def render(self):
-        """Render the current view."""
-        self.canvas.delete("all")
-
-        # Get canvas dimensions
-        canvas_width = self.canvas.winfo_width()
-        canvas_height = self.canvas.winfo_height()
-
-        # Calculate offset to center the view, including pan offset
-        offset_x = canvas_width / 2 + self.pan_offset_x
-        offset_y = canvas_height / 2 + self.pan_offset_y
-
-        # Set canvas background based on dark mode
-        bg_color = "#1E1E1E" if self.dark_mode else "white"
-        self.canvas.config(bg=bg_color)
-
-        # Render grid if enabled
-        if self.show_grid:
-            self.render_grid(canvas_width, canvas_height, offset_x, offset_y)
-
-        # Detect and collect ghost pods (external pods with relationships to current container)
-        self.ghost_pods = self.collect_ghost_pods()
-        self.calculate_ghost_positions(canvas_width, canvas_height)  # Modifies self.ghost_positions in place
-
-        # Render relationships first (so they appear behind pods)
-        for rel in self.relationships:
-            self.render_relationship(rel, offset_x, offset_y)
-
-        # Render pods
-        for pod in self.current_container.children:
-            self.render_pod(pod, offset_x, offset_y)
-
-        # Render ghost pods
-        self.render_ghost_pods()
-
-        # Update minimap if visible
-        if self.minimap_manager.show_minimap and self.minimap_manager.minimap_window and self.minimap_manager.minimap_window.winfo_exists():
-            self.minimap_manager.render_minimap()
-
-        # Render relationship creation indicator if in creation mode
-        if self.creating_relationship and self.relationship_source_pod:
-            # Draw instruction text (not affected by zoom)
-            text_color = "#4ADE80" if self.dark_mode else "#27AE60"  # Lighter green for dark mode
-            self.canvas.create_text(
-                offset_x, 20,
-                text="Click on a pod to create a relationship",
-                fill=text_color,
-                font=("Arial", 12, "bold"),
-                tags=("relationship_creation_hint",)
-            )
-
-            # Draw external link zone on the right side
-            self.render_external_link_zone(canvas_width, canvas_height)
-
-    def render_pod(self, pod: Pod, offset_x: float, offset_y: float):
-        """Render a single pod on the canvas."""
-        x1, y1, x2, y2 = pod.get_bounds()
-
-        # Apply zoom scaling
-        x1 *= self.zoom_scale
-        y1 *= self.zoom_scale
-        x2 *= self.zoom_scale
-        y2 *= self.zoom_scale
-
-        # Apply offset for centering
-        x1 += offset_x
-        y1 += offset_y
-        x2 += offset_x
-        y2 += offset_y
-
-        # Determine colors based on state
-        fill_color = pod.color
-        outline_color = pod.border_color
-        outline_width = 2
-
-        if pod.selected:
-            outline_color = "#3498DB"
-            outline_width = 3
-        elif pod.hovered:
-            outline_color = "#5DADE2"
-
-        # Draw shape (force rectangle if description is enabled)
-        if pod.has_description or pod.shape == "rectangle":
-            self.canvas.create_rectangle(
-                x1, y1, x2, y2,
-                fill=fill_color,
-                outline=outline_color,
-                width=outline_width,
-                tags=("pod", pod.id)
-            )
-        else:  # oval
-            self.canvas.create_oval(
-                x1, y1, x2, y2,
-                fill=fill_color,
-                outline=outline_color,
-                width=outline_width,
-                tags=("pod", pod.id)
-            )
-
-        # Draw text and description if enabled
-        # Use smart contrast detection to ensure text is readable on any background
-        text_color = self.get_contrast_text_color(pod.color)
-
-        if pod.has_description:
-            # Calculate separator position (30% from top for name section)
-            separator_y = y1 + (y2 - y1) * 0.3
-            name_y = y1 + (separator_y - y1) / 2
-            desc_y = separator_y + (y2 - separator_y) / 2
-
-            # Draw name in top section
-            self.canvas.create_text(
-                pod.x * self.zoom_scale + offset_x, name_y,
-                text=pod.name,
-                fill=text_color,
-                font=("Arial", 10, "bold"),
-                tags=("pod", pod.id)
-            )
-
-            # Draw separator line
-            separator_color = "#666666" if self.dark_mode else "#95A5A6"
-            self.canvas.create_line(
-                x1 + 5, separator_y, x2 - 5, separator_y,
-                fill=separator_color,
-                width=1,
-                tags=("pod", pod.id)
-            )
-
-            # Draw description in bottom section (word-wrapped if needed)
-            if pod.description:
-                # Simple word wrapping
-                max_width = (pod.width - 10) * self.zoom_scale
-                wrapped_text = self.wrap_text(pod.description, max_width, ("Arial", 8))
-                self.canvas.create_text(
-                    pod.x * self.zoom_scale + offset_x, desc_y,
-                    text=wrapped_text,
-                    fill=text_color,
-                    font=("Arial", 8),
-                    width=max_width,
-                    tags=("pod", pod.id)
-                )
-        else:
-            # Draw text normally
-            self.canvas.create_text(
-                pod.x * self.zoom_scale + offset_x, pod.y * self.zoom_scale + offset_y,
-                text=pod.name,
-                fill=text_color,
-                font=("Arial", 10),
-                tags=("pod", pod.id)
-            )
-
-        # Draw indicator if pod has children
-        if pod.children:
-            # Use same contrast logic for indicator
-            indicator_color = self.get_contrast_text_color(pod.color)
-            self.canvas.create_text(
-                pod.x * self.zoom_scale + offset_x, y2 - 5,
-                text="⋯",
-                fill=indicator_color,
-                font=("Arial", 8),
-                tags=("pod", pod.id)
-            )
-
-        # Draw resize handles if pod is selected
-        if pod.selected:
-            self.render_resize_handles(pod, offset_x, offset_y)
-            self.render_relationship_buttons(pod, offset_x, offset_y)
-
-    def wrap_text(self, text: str, max_width: float, font) -> str:
-        """Simple text wrapping helper."""
-        # For simplicity, just return the text - tkinter Text widget handles wrapping
-        # This could be enhanced with proper text measurement
-        return text
-
-    def get_luminance(self, hex_color: str) -> float:
-        """Calculate relative luminance of a color (0-1 scale).
-
-        Uses the formula from WCAG 2.0:
-        https://www.w3.org/TR/WCAG20/#relativeluminancedef
-        """
-        # Remove '#' if present
-        hex_color = hex_color.lstrip('#')
-
-        # Convert hex to RGB (0-255)
-        r = int(hex_color[0:2], 16) / 255.0
-        g = int(hex_color[2:4], 16) / 255.0
-        b = int(hex_color[4:6], 16) / 255.0
-
-        # Apply gamma correction
-        def adjust(c):
-            return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
-
-        r, g, b = adjust(r), adjust(g), adjust(b)
-
-        # Calculate luminance
-        return 0.2126 * r + 0.7152 * g + 0.0722 * b
-
-    def get_contrast_text_color(self, bg_color: str) -> str:
-        """Return black or white text color based on background luminance.
-
-        Returns white text for dark backgrounds, black for light backgrounds.
-        """
-        luminance = self.get_luminance(bg_color)
-        # Use white text if background is dark (luminance < 0.5)
-        return "#FFFFFF" if luminance < 0.5 else "#000000"
-
-    def collect_ghost_pods(self) -> list:
-        """Collect all external pods that have relationships to/from pods in current container.
-
-        Returns a list of unique external pods that should be shown as ghosts.
-        """
-        ghost_pods = []
-        seen_pod_ids = set()
-
-        for rel in self.relationships:
-            # Check if source is in current container and target is external
-            source_in_container = rel.source.parent == self.current_container
-            target_in_container = rel.target.parent == self.current_container
-
-            # Don't include the current container itself
-            if rel.source == self.current_container or rel.target == self.current_container:
-                continue
-
-            # If source is in container and target is external, add target as ghost
-            if source_in_container and not target_in_container:
-                if rel.target.id not in seen_pod_ids:
-                    ghost_pods.append(rel.target)
-                    seen_pod_ids.add(rel.target.id)
-
-            # If target is in container and source is external, add source as ghost
-            if target_in_container and not source_in_container:
-                if rel.source.id not in seen_pod_ids:
-                    ghost_pods.append(rel.source)
-                    seen_pod_ids.add(rel.source.id)
-
-        return ghost_pods
-
-    def calculate_ghost_positions(self, canvas_width: float, canvas_height: float):
-        """Initialize positions for ghost pods that don't have positions yet.
-
-        Uses world coordinates. Only sets positions for new ghosts that haven't been positioned yet.
-        """
-        if not self.ghost_pods:
-            return
-
-        # Ensure ghost_positions is initialized
-        if self.ghost_positions is None:
-            self.ghost_positions = {}
-
-        # Find which ghosts need initial positions
-        new_ghosts = []
-        for pod in self.ghost_pods:
-            key = (self.current_container.id, pod.id)
-            if key not in self.ghost_positions:
-                new_ghosts.append(pod)
-
-        if not new_ghosts:
-            return
-
-        # Calculate initial world coordinates for new ghosts
-        # Position them below the current view area
-        offset_x = canvas_width / 2 + self.pan_offset_x
-        offset_y = canvas_height / 2 + self.pan_offset_y
-
-        # Convert bottom of canvas to world coordinates
-        world_y_bottom = (canvas_height - 100 - offset_y) / self.zoom_scale
-
-        # Calculate spacing in world coordinates
-        ghost_width = 100 / self.zoom_scale
-        spacing = 20 / self.zoom_scale
-        total_width = len(new_ghosts) * (ghost_width + spacing) - spacing
-        start_x = -total_width / 2  # Center around origin
-
-        # Position each new ghost pod in world coordinates
-        for i, pod in enumerate(new_ghosts):
-            x = start_x + i * (ghost_width + spacing) + ghost_width / 2
-            key = (self.current_container.id, pod.id)
-            self.ghost_positions[key] = (x, world_y_bottom)
-
-    def render_ghost_pods(self):
-        """Render ghost representations of external pods using world coordinates."""
-        if not self.ghost_pods or not self.ghost_positions:
-            return
-
-        # Get canvas dimensions for offset calculation
-        canvas_width = self.canvas.winfo_width()
-        canvas_height = self.canvas.winfo_height()
-        offset_x = canvas_width / 2 + self.pan_offset_x
-        offset_y = canvas_height / 2 + self.pan_offset_y
-
-        ghost_width = 100
-        ghost_height = 50
-
-        for pod in self.ghost_pods:
-            key = (self.current_container.id, pod.id)
-            if key not in self.ghost_positions:
-                continue
-
-            # Get world coordinates
-            world_x, world_y = self.ghost_positions[key]
-
-            # Apply zoom and offset transformations
-            x = world_x * self.zoom_scale + offset_x
-            y = world_y * self.zoom_scale + offset_y
-
-            # Calculate bounds (in canvas coordinates)
-            scaled_width = ghost_width * self.zoom_scale
-            scaled_height = ghost_height * self.zoom_scale
-            x1 = x - scaled_width / 2
-            y1 = y - scaled_height / 2
-            x2 = x + scaled_width / 2
-            y2 = y + scaled_height / 2
-
-            # Determine if this ghost is selected
-            is_selected = (self.selected_ghost == pod)
-            outline_color = "#3498DB" if is_selected else "#888888"
-            outline_width = 3 if is_selected else 2
-
-            # Draw ghost pod with dashed border and semi-transparent appearance
-            self.canvas.create_rectangle(
-                x1, y1, x2, y2,
-                fill=pod.color,
-                outline=outline_color,
-                width=outline_width,
-                dash=(4, 4),  # Dashed border
-                stipple="gray50",  # Semi-transparent effect
-                tags=("ghost_pod", pod.id, "clickable")
-            )
-
-            # Draw pod name
-            text_color = self.get_contrast_text_color(pod.color)
-            self.canvas.create_text(
-                x, y - 8 * self.zoom_scale,
-                text=pod.name,
-                fill=text_color,
-                font=("Arial", max(7, int(9 * self.zoom_scale)), "bold"),
-                tags=("ghost_pod", pod.id)
-            )
-
-            # Draw "external" indicator
-            self.canvas.create_text(
-                x, y + 10 * self.zoom_scale,
-                text="↗ external",
-                fill="#888888",
-                font=("Arial", max(6, int(7 * self.zoom_scale)), "italic"),
-                tags=("ghost_pod", pod.id)
-            )
-
-    def render_external_link_zone(self, canvas_width: float, canvas_height: float):
-        """Render the external link zone on the right side of the canvas."""
-        zone_x = canvas_width - self.external_link_zone_width
-
-        # Draw the zone background
-        self.canvas.create_rectangle(
-            zone_x, 0,
-            canvas_width, canvas_height,
-            fill="#E8F4F8",
-            outline="#3498DB",
-            width=2,
-            tags=("external_link_zone",)
-        )
-
-        # Draw icon/text in the zone
-        mid_y = canvas_height / 2
-        self.canvas.create_text(
-            zone_x + self.external_link_zone_width / 2, mid_y - 20,
-            text="Link to",
-            fill="#2C3E50",
-            font=("Arial", 9, "bold"),
-            tags=("external_link_zone",)
-        )
-        self.canvas.create_text(
-            zone_x + self.external_link_zone_width / 2, mid_y,
-            text="External",
-            fill="#2C3E50",
-            font=("Arial", 9, "bold"),
-            tags=("external_link_zone",)
-        )
-        self.canvas.create_text(
-            zone_x + self.external_link_zone_width / 2, mid_y + 20,
-            text="Pod",
-            fill="#2C3E50",
-            font=("Arial", 9, "bold"),
-            tags=("external_link_zone",)
-        )
+        self.render_manager.render()
 
     def get_resize_handle_positions(self, pod: Pod, offset_x: float, offset_y: float):
         """Get the positions of all resize handles for a pod."""
@@ -698,178 +315,6 @@ class PodsApp:
             "sw": (x1, y2),      # Southwest (bottom-left)
             "w": (x1, cy),       # West (middle-left)
         }
-
-    def render_resize_handles(self, pod: Pod, offset_x: float, offset_y: float):
-        """Render resize handles around a selected pod."""
-        handles = self.get_resize_handle_positions(pod, offset_x, offset_y)
-        half_size = self.resize_handle_size / 2
-
-        for direction, (hx, hy) in handles.items():
-            # Draw a small rectangle for each handle
-            self.canvas.create_rectangle(
-                hx - half_size, hy - half_size,
-                hx + half_size, hy + half_size,
-                fill="white",
-                outline="#3498DB",
-                width=2,
-                tags=("resize_handle", f"handle_{direction}", pod.id)
-            )
-
-    def get_relationship_button_positions(self, pod: Pod, offset_x: float, offset_y: float):
-        """Get the positions of relationship creation buttons (cardinal directions only)."""
-        x1, y1, x2, y2 = pod.get_bounds()
-
-        # Apply zoom scaling
-        x1 *= self.zoom_scale
-        y1 *= self.zoom_scale
-        x2 *= self.zoom_scale
-        y2 *= self.zoom_scale
-
-        # Apply offset
-        x1 += offset_x
-        y1 += offset_y
-        x2 += offset_x
-        y2 += offset_y
-
-        cx = (x1 + x2) / 2  # Center X
-        cy = (y1 + y2) / 2  # Center Y
-
-        # Distance to place buttons outside the pod border
-        button_offset = 20
-
-        # Return button positions: {direction: (x, y)}
-        return {
-            "n": (cx, y1 - button_offset),       # North
-            "e": (x2 + button_offset, cy),       # East
-            "s": (cx, y2 + button_offset),       # South
-            "w": (x1 - button_offset, cy),       # West
-        }
-
-    def render_relationship_buttons(self, pod: Pod, offset_x: float, offset_y: float):
-        """Render plus buttons for creating relationships at cardinal directions."""
-        buttons = self.get_relationship_button_positions(pod, offset_x, offset_y)
-        half_size = self.relationship_button_size / 2
-
-        for direction, (bx, by) in buttons.items():
-            # Draw circle background
-            self.canvas.create_oval(
-                bx - half_size, by - half_size,
-                bx + half_size, by + half_size,
-                fill="#27AE60",
-                outline="#1E8449",
-                width=1,
-                tags=("rel_button", f"rel_btn_{direction}", pod.id)
-            )
-            # Draw plus sign
-            self.canvas.create_text(
-                bx, by,
-                text="+",
-                fill="white",
-                font=("Arial", 10, "bold"),
-                tags=("rel_button", f"rel_btn_{direction}", pod.id)
-            )
-
-    def render_relationship(self, rel: Relationship, offset_x: float, offset_y: float):
-        """Render a relationship line between pods."""
-        # Don't render relationships where either end is the current container itself
-        # (we're inside that container, so we don't want to see its connections to the outside)
-        if rel.source == self.current_container or rel.target == self.current_container:
-            return
-
-        # Check if source is a child of the current container
-        source_in_container = rel.source.parent == self.current_container
-        # Check if target is a child of the current container
-        target_in_container = rel.target.parent == self.current_container
-
-        # Only render if at least one end is a child of the current container
-        if not source_in_container and not target_in_container:
-            return
-
-        x1, y1, x2, y2 = rel.get_endpoints()
-
-        # Apply zoom scaling
-        x1 *= self.zoom_scale
-        y1 *= self.zoom_scale
-        x2 *= self.zoom_scale
-        y2 *= self.zoom_scale
-
-        # Apply offset
-        x1 += offset_x
-        y1 += offset_y
-        x2 += offset_x
-        y2 += offset_y
-
-        # If target is external, connect to ghost pod instead of edge
-        if not target_in_container:
-            ghost_key = (self.current_container.id, rel.target.id)
-            if ghost_key in self.ghost_positions:
-                world_x, world_y = self.ghost_positions[ghost_key]
-                x2 = world_x * self.zoom_scale + offset_x
-                y2 = world_y * self.zoom_scale + offset_y
-
-        # If source is external, connect to ghost pod instead of edge
-        if not source_in_container:
-            ghost_key = (self.current_container.id, rel.source.id)
-            if ghost_key in self.ghost_positions:
-                world_x, world_y = self.ghost_positions[ghost_key]
-                x1 = world_x * self.zoom_scale + offset_x
-                y1 = world_y * self.zoom_scale + offset_y
-
-        # Draw line
-        color = "#3498DB" if rel.selected else rel.color
-        width = rel.line_width + 1 if rel.selected else rel.line_width
-        self.canvas.create_line(
-            x1, y1, x2, y2,
-            fill=color,
-            width=width,
-            arrow=tk.LAST if rel.arrow else None,
-            tags=("relationship", rel.id)
-        )
-
-        # Calculate midpoint for labels
-        mid_x = (x1 + x2) / 2
-        mid_y = (y1 + y2) / 2
-
-        # Draw label if present
-        if rel.label:
-            self.canvas.create_text(
-                mid_x, mid_y - 10,
-                text=rel.label,
-                fill="#2C3E50" if rel.selected else "#7F8C8D",
-                font=("Arial", 8, "bold" if rel.selected else "normal"),
-                tags=("relationship", rel.id)
-            )
-
-        # Draw description if selected and present
-        if rel.selected and rel.description:
-            # Draw description box below the label
-            desc_y_offset = 10 if rel.label else 5
-
-            # Create a semi-transparent background for the description
-            desc_lines = rel.description.split('\n')
-            max_line_length = max(len(line) for line in desc_lines) if desc_lines else 0
-            box_width = min(max_line_length * 6, 200)  # Approximate width
-            box_height = len(desc_lines) * 12 + 10
-
-            # Draw background box
-            self.canvas.create_rectangle(
-                mid_x - box_width / 2, mid_y + desc_y_offset,
-                mid_x + box_width / 2, mid_y + desc_y_offset + box_height,
-                fill="#ECF0F1",
-                outline="#3498DB",
-                width=1,
-                tags=("relationship", rel.id)
-            )
-
-            # Draw description text
-            self.canvas.create_text(
-                mid_x, mid_y + desc_y_offset + box_height / 2,
-                text=rel.description,
-                fill="#2C3E50",
-                font=("Arial", 8),
-                width=box_width - 10,
-                tags=("relationship", rel.id)
-            )
 
     def get_pod_at_position(self, x: float, y: float) -> Optional[Pod]:
         """Find the pod at the given canvas position."""
@@ -999,7 +444,7 @@ class PodsApp:
             self.pan_offset_x = 0
             self.pan_offset_y = 0
 
-            self.render()
+            self.render_manager.render()
         else:
             # If ghost pod has no parent, it might be a top-level pod
             # Navigate to it directly
@@ -1007,7 +452,68 @@ class PodsApp:
             self.navigation_history.append(ghost_pod)
             self.pan_offset_x = 0
             self.pan_offset_y = 0
-            self.render()
+            self.render_manager.render()
+
+    def get_resize_handle_positions(self, pod: Pod, offset_x: float, offset_y: float):
+        """Get the positions of all resize handles for a pod."""
+        x1, y1, x2, y2 = pod.get_bounds()
+
+        # Apply zoom scaling
+        x1 *= self.zoom_scale
+        y1 *= self.zoom_scale
+        x2 *= self.zoom_scale
+        y2 *= self.zoom_scale
+
+        # Apply offset
+        x1 += offset_x
+        y1 += offset_y
+        x2 += offset_x
+        y2 += offset_y
+
+        cx = (x1 + x2) / 2  # Center X
+        cy = (y1 + y2) / 2  # Center Y
+
+        # Return handle positions: {direction: (x, y)}
+        return {
+            "nw": (x1, y1),      # Northwest (top-left)
+            "n": (cx, y1),       # North (top-center)
+            "ne": (x2, y1),      # Northeast (top-right)
+            "e": (x2, cy),       # East (middle-right)
+            "se": (x2, y2),      # Southeast (bottom-right)
+            "s": (cx, y2),       # South (bottom-center)
+            "sw": (x1, y2),      # Southwest (bottom-left)
+            "w": (x1, cy),       # West (middle-left)
+        }
+
+    def get_relationship_button_positions(self, pod: Pod, offset_x: float, offset_y: float):
+        """Get the positions of relationship creation buttons (cardinal directions only)."""
+        x1, y1, x2, y2 = pod.get_bounds()
+
+        # Apply zoom scaling
+        x1 *= self.zoom_scale
+        y1 *= self.zoom_scale
+        x2 *= self.zoom_scale
+        y2 *= self.zoom_scale
+
+        # Apply offset
+        x1 += offset_x
+        y1 += offset_y
+        x2 += offset_x
+        y2 += offset_y
+
+        cx = (x1 + x2) / 2  # Center X
+        cy = (y1 + y2) / 2  # Center Y
+
+        # Distance to place buttons outside the pod border
+        button_offset = 20
+
+        # Return button positions: {direction: (x, y)}
+        return {
+            "n": (cx, y1 - button_offset),       # North
+            "e": (x2 + button_offset, cy),       # East
+            "s": (cx, y2 + button_offset),       # South
+            "w": (x1 - button_offset, cy),       # West
+        }
 
     def get_resize_handle_at_position(self, x: float, y: float, pod: Pod) -> Optional[str]:
         """Check if position is over a resize handle. Returns handle direction or None."""
@@ -1137,7 +643,7 @@ class PodsApp:
                 self.relationship_source_pod = None
                 self.relationship_source_direction = None
                 self.canvas.config(cursor="arrow")
-                self.render()
+                self.render_manager.render()
                 return
 
             # Check if clicking in external link zone
@@ -1167,7 +673,7 @@ class PodsApp:
             self.relationship_source_pod = None
             self.relationship_source_direction = None
             self.canvas.config(cursor="arrow")
-            self.render()
+            self.render_manager.render()
             return
 
         # Check if clicking on a relationship button of the selected pod
@@ -1179,7 +685,7 @@ class PodsApp:
                 self.relationship_source_pod = self.selected_pod
                 self.relationship_source_direction = rel_button
                 self.canvas.config(cursor="crosshair")
-                self.render()  # Re-render to show external link zone and hint
+                self.render_manager.render()  # Re-render to show external link zone and hint
                 return
 
             # Check if clicking on a resize handle of the selected pod
@@ -1213,7 +719,7 @@ class PodsApp:
             self.dragging = True
             self.drag_start_x = event.x
             self.drag_start_y = event.y
-            self.render()
+            self.render_manager.render()
             return
 
         pod = self.get_pod_at_position(event.x, event.y)
@@ -1290,7 +796,7 @@ class PodsApp:
                     self.drag_start_y = event.y
                     self.canvas.config(cursor="fleur")  # Hand/move cursor
 
-        self.render()
+        self.render_manager.render()
 
     def on_canvas_double_click(self, event):
         """Handle double click - enter pod to view/create children, or navigate to ghost pod location."""
@@ -1313,7 +819,7 @@ class PodsApp:
         if self.resizing and self.selected_pod and self.resize_handle:
             # Handle resizing
             self.resize_pod(event.x, event.y)
-            self.render()
+            self.render_manager.render()
         elif self.panning:
             # Handle panning
             dx = event.x - self.drag_start_x
@@ -1327,7 +833,7 @@ class PodsApp:
             self.drag_start_x = event.x
             self.drag_start_y = event.y
 
-            self.render()
+            self.render_manager.render()
         elif self.dragging and self.selected_ghost:
             # Handle dragging ghost pod
             dx = (event.x - self.drag_start_x) / self.zoom_scale
@@ -1351,7 +857,7 @@ class PodsApp:
             self.drag_start_x = event.x
             self.drag_start_y = event.y
 
-            self.render()
+            self.render_manager.render()
         elif self.dragging and self.selected_pods:
             # Calculate drag delta (account for zoom)
             dx = (event.x - self.drag_start_x) / self.zoom_scale
@@ -1373,7 +879,7 @@ class PodsApp:
             self.drag_start_x = event.x
             self.drag_start_y = event.y
 
-            self.render()
+            self.render_manager.render()
 
     def on_canvas_release(self, event):
         """Handle mouse button release."""
@@ -1404,7 +910,7 @@ class PodsApp:
                 if old_hover != p.hovered:
                     changed = True
             if changed:
-                self.render()
+                self.render_manager.render()
             return
 
         # Check if hovering over a resize handle
@@ -1439,7 +945,7 @@ class PodsApp:
                 changed = True
 
         if changed:
-            self.render()
+            self.render_manager.render()
 
     def on_escape_key(self, event):
         """Handle escape key press - cancel relationship creation."""
@@ -1448,7 +954,7 @@ class PodsApp:
             self.relationship_source_pod = None
             self.relationship_source_direction = None
             self.canvas.config(cursor="arrow")
-            self.render()
+            self.render_manager.render()
 
     def on_mouse_wheel(self, event):
         """Handle mouse wheel zoom."""
@@ -1482,7 +988,7 @@ class PodsApp:
             self.pan_offset_x += (new_mouse_world_x - mouse_world_x) * self.zoom_scale
             self.pan_offset_y += (new_mouse_world_y - mouse_world_y) * self.zoom_scale
 
-            self.render()
+            self.render_manager.render()
 
     def on_canvas_right_click(self, event):
         """Handle right-click on canvas - show context menu for pods or relationships."""
@@ -1603,7 +1109,7 @@ class PodsApp:
             self.state_manager.save_state()
             pod.name = name_entry.get()
             dialog.destroy()
-            self.render()
+            self.render_manager.render()
 
         def cancel():
             dialog.destroy()
@@ -1651,7 +1157,7 @@ class PodsApp:
             self.state_manager.save_state()
             pod.description = desc_text.get("1.0", tk.END).strip()
             dialog.destroy()
-            self.render()
+            self.render_manager.render()
 
         def cancel():
             dialog.destroy()
@@ -1673,7 +1179,7 @@ class PodsApp:
             # If enabling description for the first time, open edit dialog
             self.edit_pod_description(pod)
         else:
-            self.render()
+            self.render_manager.render()
 
 
     def edit_relationship_label(self, relationship: Relationship):
@@ -1703,7 +1209,7 @@ class PodsApp:
             self.state_manager.save_state()
             relationship.label = label_entry.get()
             dialog.destroy()
-            self.render()
+            self.render_manager.render()
 
         def cancel():
             dialog.destroy()
@@ -1751,7 +1257,7 @@ class PodsApp:
             self.state_manager.save_state()
             relationship.description = desc_text.get("1.0", tk.END).strip()
             dialog.destroy()
-            self.render()
+            self.render_manager.render()
 
         def cancel():
             dialog.destroy()
@@ -1841,7 +1347,7 @@ class PodsApp:
                 self.canvas.config(cursor="arrow")
 
                 dialog.destroy()
-                self.render()
+                self.render_manager.render()
 
         def cancel():
             dialog.destroy()
@@ -1870,7 +1376,7 @@ class PodsApp:
         self.pan_offset_y = 0
         self.zoom_scale = 1.0
 
-        self.render()
+        self.render_manager.render()
 
     def navigate_back(self):
         """Navigate back to the previous container."""
@@ -1888,7 +1394,7 @@ class PodsApp:
             if not self.navigation_history:
                 self.back_button.config(state=tk.DISABLED)
 
-            self.render()
+            self.render_manager.render()
 
     def add_new_pod(self):
         """Add a new pod to the current container."""
@@ -1908,7 +1414,7 @@ class PodsApp:
         )
 
         self.current_container.add_child(new_pod)
-        self.render()
+        self.render_manager.render()
 
     def add_pod_at_position(self, canvas_x: float, canvas_y: float, shape: str = "oval"):
         """Add a new pod at a specific canvas position."""
@@ -1938,14 +1444,14 @@ class PodsApp:
         )
 
         self.current_container.add_child(new_pod)
-        self.render()
+        self.render_manager.render()
 
     def reset_view(self):
         """Reset pan offset and zoom to default values."""
         self.pan_offset_x = 0
         self.pan_offset_y = 0
         self.zoom_scale = 1.0
-        self.render()
+        self.render_manager.render()
 
     def delete_pod(self, pod: Pod):
         """Delete a pod and all its relationships."""
@@ -1974,7 +1480,7 @@ class PodsApp:
         if self.selected_pod == pod:
             self.selected_pod = None
 
-        self.render()
+        self.render_manager.render()
 
     def delete_relationship(self, relationship: Relationship):
         """Delete a relationship."""
@@ -1998,7 +1504,7 @@ class PodsApp:
         if self.selected_relationship == relationship:
             self.selected_relationship = None
 
-        self.render()
+        self.render_manager.render()
 
     def delete_selected(self):
         """Delete the currently selected pod(s) or relationship using Delete key."""
@@ -2035,7 +1541,7 @@ class PodsApp:
                 # Clear selections
                 self.selected_pods.clear()
                 self.selected_pod = None
-                self.render()
+                self.render_manager.render()
         elif self.selected_relationship:
             self.delete_relationship(self.selected_relationship)
 
@@ -2052,7 +1558,7 @@ class PodsApp:
             pod.x += dx
             pod.y += dy
 
-        self.render()
+        self.render_manager.render()
 
     def select_all(self):
         """Select all pods in the current container."""
@@ -2067,7 +1573,7 @@ class PodsApp:
             self.selected_pods.append(pod)
 
         self.selected_pod = self.selected_pods[0] if self.selected_pods else None
-        self.render()
+        self.render_manager.render()
 
     def duplicate_selected(self):
         """Duplicate the selected pod(s) - shortcut for copy+paste."""
@@ -2127,7 +1633,7 @@ class PodsApp:
             self._update_pod_ids(new_pod)
             self.current_container.add_child(new_pod)
 
-        self.render()
+        self.render_manager.render()
 
     def _update_pod_ids(self, pod: Pod):
         """Recursively update pod and children IDs when copying."""
@@ -2174,35 +1680,12 @@ class PodsApp:
             for pod in self.selected_pods:
                 pod.y = avg_y
 
-        self.render()
-
-    def render_grid(self, canvas_width: float, canvas_height: float, offset_x: float, offset_y: float):
-        """Render a grid overlay on the canvas."""
-        grid_size_zoomed = self.grid_size * self.zoom_scale
-
-        # Calculate starting positions to align grid with world coordinates
-        start_x = (offset_x % grid_size_zoomed)
-        start_y = (offset_y % grid_size_zoomed)
-
-        # Use appropriate grid color for dark mode
-        grid_color = "#404040" if self.dark_mode else "#E0E0E0"
-
-        # Draw vertical lines
-        x = start_x
-        while x < canvas_width:
-            self.canvas.create_line(x, 0, x, canvas_height, fill=grid_color, tags=("grid",))
-            x += grid_size_zoomed
-
-        # Draw horizontal lines
-        y = start_y
-        while y < canvas_height:
-            self.canvas.create_line(0, y, canvas_width, y, fill=grid_color, tags=("grid",))
-            y += grid_size_zoomed
+        self.render_manager.render()
 
     def toggle_grid(self):
         """Toggle grid visibility."""
         self.show_grid = self.grid_var.get()
-        self.render()
+        self.render_manager.render()
 
     def toggle_snap(self):
         """Toggle snap to grid."""
@@ -2212,7 +1695,7 @@ class PodsApp:
         """Toggle dark mode."""
         self.dark_mode = self.dark_mode_var.get()
         self.save_preferences()
-        self.render()
+        self.render_manager.render()
 
         # Update minimap if visible
         if self.minimap_manager.show_minimap and self.minimap_manager.minimap_window and self.minimap_manager.minimap_window.winfo_exists():
