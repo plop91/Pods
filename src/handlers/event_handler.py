@@ -197,7 +197,7 @@ class EventHandler:
     def on_canvas_double_click(self, event):
         """Handle double-click on canvas (navigate into a pod)."""
         clicked_pod = self.app.get_pod_at_position(event.x, event.y)
-        if clicked_pod and clicked_pod.children:
+        if clicked_pod:
             self.app.navigate_into(clicked_pod)
 
     def on_canvas_drag(self, event):
