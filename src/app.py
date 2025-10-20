@@ -14,6 +14,7 @@ from .persistence.state_manager import StateManager
 from .features.search import SearchManager
 from .features.minimap import MinimapManager
 from .features.color_picker import ColorPickerManager
+from .features.pod_operations import PodOperations
 from .rendering.renderer import RenderManager
 from .handlers.event_handler import EventHandler
 from .handlers.hit_detection import HitDetection
@@ -98,6 +99,7 @@ class PodsApp:
         self.search_manager = SearchManager(self)
         self.minimap_manager = MinimapManager(self)
         self.color_picker_manager = ColorPickerManager(self)
+        self.pod_operations = PodOperations(self)
         self.render_manager = RenderManager(self)
         self.hit_detection = HitDetection(self)
         self.event_handler = EventHandler(self)
@@ -146,8 +148,8 @@ class PodsApp:
         edit_menu.add_command(label="Undo", command=self.state_manager.undo, accelerator="Ctrl+Z")
         edit_menu.add_command(label="Redo", command=self.state_manager.redo, accelerator="Ctrl+Y")
         edit_menu.add_separator()
-        edit_menu.add_command(label="Copy Pod", command=self.copy_pod, accelerator="Ctrl+C")
-        edit_menu.add_command(label="Paste Pod", command=self.paste_pod, accelerator="Ctrl+V")
+        edit_menu.add_command(label="Copy Pod", command=self.pod_operations.copy_pod, accelerator="Ctrl+C")
+        edit_menu.add_command(label="Paste Pod", command=self.pod_operations.paste_pod, accelerator="Ctrl+V")
 
         # Bind keyboard shortcuts
         self.root.bind("<Control-n>", lambda e: self.file_manager.new_project())
@@ -156,25 +158,25 @@ class PodsApp:
         self.root.bind("<Control-Shift-S>", lambda e: self.file_manager.save_project_as())
         self.root.bind("<Control-z>", lambda e: self.state_manager.undo())
         self.root.bind("<Control-y>", lambda e: self.state_manager.redo())
-        self.root.bind("<Control-c>", lambda e: self.copy_pod())
-        self.root.bind("<Control-v>", lambda e: self.paste_pod())
-        self.root.bind("<Delete>", lambda e: self.delete_selected())
-        self.root.bind("<BackSpace>", lambda e: self.delete_selected())
+        self.root.bind("<Control-c>", lambda e: self.pod_operations.copy_pod())
+        self.root.bind("<Control-v>", lambda e: self.pod_operations.paste_pod())
+        self.root.bind("<Delete>", lambda e: self.pod_operations.delete_selected())
+        self.root.bind("<BackSpace>", lambda e: self.pod_operations.delete_selected())
         self.root.bind("<Control-f>", lambda e: self.search_manager.open_search_dialog())
-        self.root.bind("<Control-a>", lambda e: self.select_all())
-        self.root.bind("<Control-d>", lambda e: self.duplicate_selected())
+        self.root.bind("<Control-a>", lambda e: self.pod_operations.select_all())
+        self.root.bind("<Control-d>", lambda e: self.pod_operations.duplicate_selected())
 
         # Arrow key movement
-        self.root.bind("<Left>", lambda e: self.move_selected(-5, 0))
-        self.root.bind("<Right>", lambda e: self.move_selected(5, 0))
-        self.root.bind("<Up>", lambda e: self.move_selected(0, -5))
-        self.root.bind("<Down>", lambda e: self.move_selected(0, 5))
+        self.root.bind("<Left>", lambda e: self.pod_operations.move_selected(-5, 0))
+        self.root.bind("<Right>", lambda e: self.pod_operations.move_selected(5, 0))
+        self.root.bind("<Up>", lambda e: self.pod_operations.move_selected(0, -5))
+        self.root.bind("<Down>", lambda e: self.pod_operations.move_selected(0, 5))
 
         # Shift+Arrow for larger movements
-        self.root.bind("<Shift-Left>", lambda e: self.move_selected(-20, 0))
-        self.root.bind("<Shift-Right>", lambda e: self.move_selected(20, 0))
-        self.root.bind("<Shift-Up>", lambda e: self.move_selected(0, -20))
-        self.root.bind("<Shift-Down>", lambda e: self.move_selected(0, 20))
+        self.root.bind("<Shift-Left>", lambda e: self.pod_operations.move_selected(-20, 0))
+        self.root.bind("<Shift-Right>", lambda e: self.pod_operations.move_selected(20, 0))
+        self.root.bind("<Shift-Up>", lambda e: self.pod_operations.move_selected(0, -20))
+        self.root.bind("<Shift-Down>", lambda e: self.pod_operations.move_selected(0, 20))
 
         # Top toolbar
         toolbar = ttk.Frame(self.root, padding="5")
@@ -190,7 +192,7 @@ class PodsApp:
         self.back_button.config(state=tk.DISABLED)
 
         # Add pod button
-        add_button = ttk.Button(toolbar, text="+ Add Pod", command=self.add_new_pod)
+        add_button = ttk.Button(toolbar, text="+ Add Pod", command=self.pod_operations.add_new_pod)
         add_button.pack(side=tk.LEFT, padx=5)
 
         # Separator
@@ -198,12 +200,12 @@ class PodsApp:
 
         # Alignment tools
         ttk.Label(toolbar, text="Align:").pack(side=tk.LEFT, padx=(0, 2))
-        ttk.Button(toolbar, text="Left", width=5, command=lambda: self.align_pods("left")).pack(side=tk.LEFT, padx=1)
-        ttk.Button(toolbar, text="Center", width=6, command=lambda: self.align_pods("center")).pack(side=tk.LEFT, padx=1)
-        ttk.Button(toolbar, text="Right", width=5, command=lambda: self.align_pods("right")).pack(side=tk.LEFT, padx=1)
-        ttk.Button(toolbar, text="Top", width=4, command=lambda: self.align_pods("top")).pack(side=tk.LEFT, padx=1)
-        ttk.Button(toolbar, text="Middle", width=6, command=lambda: self.align_pods("middle")).pack(side=tk.LEFT, padx=1)
-        ttk.Button(toolbar, text="Bottom", width=6, command=lambda: self.align_pods("bottom")).pack(side=tk.LEFT, padx=1)
+        ttk.Button(toolbar, text="Left", width=5, command=lambda: self.pod_operations.align_pods("left")).pack(side=tk.LEFT, padx=1)
+        ttk.Button(toolbar, text="Center", width=6, command=lambda: self.pod_operations.align_pods("center")).pack(side=tk.LEFT, padx=1)
+        ttk.Button(toolbar, text="Right", width=5, command=lambda: self.pod_operations.align_pods("right")).pack(side=tk.LEFT, padx=1)
+        ttk.Button(toolbar, text="Top", width=4, command=lambda: self.pod_operations.align_pods("top")).pack(side=tk.LEFT, padx=1)
+        ttk.Button(toolbar, text="Middle", width=6, command=lambda: self.pod_operations.align_pods("middle")).pack(side=tk.LEFT, padx=1)
+        ttk.Button(toolbar, text="Bottom", width=6, command=lambda: self.pod_operations.align_pods("bottom")).pack(side=tk.LEFT, padx=1)
 
         # Separator
         ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5)
@@ -288,255 +290,6 @@ class PodsApp:
 
         # Now render with proper dimensions
         self.render_manager.render()
-
-    def resize_pod(self, mouse_x: float, mouse_y: float):
-        """Resize the selected pod based on the resize handle being dragged."""
-        if not self.selected_pod or not self.resize_handle:
-            return
-
-        canvas_width = self.canvas.winfo_width()
-        canvas_height = self.canvas.winfo_height()
-        offset_x = canvas_width / 2 + self.pan_offset_x
-        offset_y = canvas_height / 2 + self.pan_offset_y
-
-        # Convert mouse position to world coordinates (accounting for zoom)
-        world_x = (mouse_x - offset_x) / self.zoom_scale
-        world_y = (mouse_y - offset_y) / self.zoom_scale
-
-        # Get current bounds in world coordinates
-        x1, y1, x2, y2 = self.selected_pod.get_bounds()
-
-        # Minimum size constraints
-        min_width = 40
-        min_height = 30
-
-        # Adjust bounds based on which handle is being dragged
-        handle = self.resize_handle
-
-        # Handle vertical resizing
-        if 'n' in handle:  # North handles (top)
-            y1 = world_y
-        if 's' in handle:  # South handles (bottom)
-            y2 = world_y
-
-        # Handle horizontal resizing
-        if 'w' in handle:  # West handles (left)
-            x1 = world_x
-        if 'e' in handle:  # East handles (right)
-            x2 = world_x
-
-        # Ensure minimum size
-        if x2 - x1 < min_width:
-            if 'w' in handle:
-                x1 = x2 - min_width
-            else:
-                x2 = x1 + min_width
-
-        if y2 - y1 < min_height:
-            if 'n' in handle:
-                y1 = y2 - min_height
-            else:
-                y2 = y1 + min_height
-
-        # Calculate new center position and dimensions
-        new_x = (x1 + x2) / 2
-        new_y = (y1 + y2) / 2
-        new_width = x2 - x1
-        new_height = y2 - y1
-
-        # Update pod
-        self.selected_pod.x = new_x
-        self.selected_pod.y = new_y
-        self.selected_pod.width = new_width
-        self.selected_pod.height = new_height
-
-    def edit_pod_name(self, pod: Pod):
-        """Open dialog to edit pod name."""
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Edit Pod Name")
-        dialog.geometry("400x120")
-        dialog.transient(self.root)
-        dialog.grab_set()
-
-        # Center the dialog
-        dialog.update_idletasks()
-        x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
-        y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
-        dialog.geometry(f"+{x}+{y}")
-
-        # Name entry
-        tk.Label(dialog, text="Pod Name:").pack(pady=(10, 5))
-        name_entry = tk.Entry(dialog, width=40)
-        name_entry.insert(0, pod.name)
-        name_entry.pack(pady=5)
-        name_entry.focus()
-        name_entry.select_range(0, tk.END)
-
-        def save_name():
-            # Save state for undo
-            self.state_manager.save_state()
-            pod.name = name_entry.get()
-            dialog.destroy()
-            self.render_manager.render()
-
-        def cancel():
-            dialog.destroy()
-
-        # Buttons
-        button_frame = tk.Frame(dialog)
-        button_frame.pack(pady=10)
-        tk.Button(button_frame, text="Save", command=save_name, width=10).pack(side=tk.LEFT, padx=5)
-        tk.Button(button_frame, text="Cancel", command=cancel, width=10).pack(side=tk.LEFT, padx=5)
-
-        # Bind Enter key to save
-        name_entry.bind("<Return>", lambda e: save_name())
-        dialog.bind("<Escape>", lambda e: cancel())
-
-    def edit_pod_description(self, pod: Pod):
-        """Open dialog to edit pod description."""
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Edit Pod Description")
-        dialog.geometry("500x300")
-        dialog.transient(self.root)
-        dialog.grab_set()
-
-        # Center the dialog
-        dialog.update_idletasks()
-        x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
-        y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
-        dialog.geometry(f"+{x}+{y}")
-
-        # Description text area
-        tk.Label(dialog, text="Description:").pack(pady=(10, 5))
-        text_frame = tk.Frame(dialog)
-        text_frame.pack(padx=10, pady=5, fill=tk.BOTH, expand=True)
-
-        scrollbar = tk.Scrollbar(text_frame)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        desc_text = tk.Text(text_frame, width=60, height=10, yscrollcommand=scrollbar.set, wrap=tk.WORD)
-        desc_text.insert("1.0", pod.description)
-        desc_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.config(command=desc_text.yview)
-        desc_text.focus()
-
-        def save_description():
-            # Save state for undo
-            self.state_manager.save_state()
-            pod.description = desc_text.get("1.0", tk.END).strip()
-            dialog.destroy()
-            self.render_manager.render()
-
-        def cancel():
-            dialog.destroy()
-
-        # Buttons
-        button_frame = tk.Frame(dialog)
-        button_frame.pack(pady=10)
-        tk.Button(button_frame, text="Save", command=save_description, width=10).pack(side=tk.LEFT, padx=5)
-        tk.Button(button_frame, text="Cancel", command=cancel, width=10).pack(side=tk.LEFT, padx=5)
-
-        dialog.bind("<Escape>", lambda e: cancel())
-
-    def toggle_pod_description(self, pod: Pod, enabled: bool):
-        """Toggle description visibility for a pod."""
-        # Save state for undo
-        self.state_manager.save_state()
-        pod.has_description = enabled
-        if enabled and not pod.description:
-            # If enabling description for the first time, open edit dialog
-            self.edit_pod_description(pod)
-        else:
-            self.render_manager.render()
-
-
-    def edit_relationship_label(self, relationship: Relationship):
-        """Open dialog to edit relationship label."""
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Edit Relationship Label")
-        dialog.geometry("400x120")
-        dialog.transient(self.root)
-        dialog.grab_set()
-
-        # Center the dialog
-        dialog.update_idletasks()
-        x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
-        y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
-        dialog.geometry(f"+{x}+{y}")
-
-        # Label entry
-        tk.Label(dialog, text="Relationship Label:").pack(pady=(10, 5))
-        label_entry = tk.Entry(dialog, width=40)
-        label_entry.insert(0, relationship.label)
-        label_entry.pack(pady=5)
-        label_entry.focus()
-        label_entry.select_range(0, tk.END)
-
-        def save_label():
-            # Save state for undo
-            self.state_manager.save_state()
-            relationship.label = label_entry.get()
-            dialog.destroy()
-            self.render_manager.render()
-
-        def cancel():
-            dialog.destroy()
-
-        # Buttons
-        button_frame = tk.Frame(dialog)
-        button_frame.pack(pady=10)
-        tk.Button(button_frame, text="Save", command=save_label, width=10).pack(side=tk.LEFT, padx=5)
-        tk.Button(button_frame, text="Cancel", command=cancel, width=10).pack(side=tk.LEFT, padx=5)
-
-        # Bind Enter key to save
-        label_entry.bind("<Return>", lambda e: save_label())
-        dialog.bind("<Escape>", lambda e: cancel())
-
-    def edit_relationship_description(self, relationship: Relationship):
-        """Open dialog to edit relationship description."""
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Edit Relationship Description")
-        dialog.geometry("500x300")
-        dialog.transient(self.root)
-        dialog.grab_set()
-
-        # Center the dialog
-        dialog.update_idletasks()
-        x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
-        y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
-        dialog.geometry(f"+{x}+{y}")
-
-        # Description text area
-        tk.Label(dialog, text="Description (visible when relationship is selected):").pack(pady=(10, 5))
-        text_frame = tk.Frame(dialog)
-        text_frame.pack(padx=10, pady=5, fill=tk.BOTH, expand=True)
-
-        scrollbar = tk.Scrollbar(text_frame)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        desc_text = tk.Text(text_frame, width=60, height=10, yscrollcommand=scrollbar.set, wrap=tk.WORD)
-        desc_text.insert("1.0", relationship.description)
-        desc_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.config(command=desc_text.yview)
-        desc_text.focus()
-
-        def save_description():
-            # Save state for undo
-            self.state_manager.save_state()
-            relationship.description = desc_text.get("1.0", tk.END).strip()
-            dialog.destroy()
-            self.render_manager.render()
-
-        def cancel():
-            dialog.destroy()
-
-        # Buttons
-        button_frame = tk.Frame(dialog)
-        button_frame.pack(pady=10)
-        tk.Button(button_frame, text="Save", command=save_description, width=10).pack(side=tk.LEFT, padx=5)
-        tk.Button(button_frame, text="Cancel", command=cancel, width=10).pack(side=tk.LEFT, padx=5)
-
-        dialog.bind("<Escape>", lambda e: cancel())
 
     def show_external_pod_selector(self):
         """Show dialog to select an external pod for creating a relationship."""
@@ -664,290 +417,11 @@ class PodsApp:
 
             self.render_manager.render()
 
-    def add_new_pod(self):
-        """Add a new pod to the current container."""
-        # Save state for undo
-        self.state_manager.save_state()
-
-        # Find a good position (offset from center)
-        import random
-        x = random.randint(-200, 200)
-        y = random.randint(-200, 200)
-
-        new_pod = Pod(
-            f"New Pod {len(self.current_container.children) + 1}",
-            x=x, y=y,
-            width=120, height=70,
-            shape="oval"
-        )
-
-        self.current_container.add_child(new_pod)
-        self.render_manager.render()
-
-    def add_pod_at_position(self, canvas_x: float, canvas_y: float, shape: str = "oval"):
-        """Add a new pod at a specific canvas position."""
-        # Save state for undo
-        self.state_manager.save_state()
-
-        # Convert canvas coordinates to world coordinates
-        canvas_width = self.canvas.winfo_width()
-        canvas_height = self.canvas.winfo_height()
-        offset_x = canvas_width / 2 + self.pan_offset_x
-        offset_y = canvas_height / 2 + self.pan_offset_y
-
-        world_x = (canvas_x - offset_x) / self.zoom_scale
-        world_y = (canvas_y - offset_y) / self.zoom_scale
-
-        # Apply snap to grid if enabled
-        if self.snap_to_grid:
-            world_x = self.snap_to_grid_coord(world_x)
-            world_y = self.snap_to_grid_coord(world_y)
-
-        # Create new pod at the clicked position
-        new_pod = Pod(
-            f"New Pod {len(self.current_container.children) + 1}",
-            x=world_x, y=world_y,
-            width=120, height=70,
-            shape=shape
-        )
-
-        self.current_container.add_child(new_pod)
-        self.render_manager.render()
-
     def reset_view(self):
         """Reset pan offset and zoom to default values."""
         self.pan_offset_x = 0
         self.pan_offset_y = 0
         self.zoom_scale = 1.0
-        self.render_manager.render()
-
-    def delete_pod(self, pod: Pod):
-        """Delete a pod and all its relationships."""
-        # Confirm deletion
-        response = messagebox.askyesno(
-            "Delete Pod",
-            f"Are you sure you want to delete '{pod.name}'?\nThis will also delete all relationships connected to it."
-        )
-        if not response:
-            return
-
-        # Save state for undo
-        self.state_manager.save_state()
-
-        # Remove all relationships connected to this pod
-        self.relationships = [
-            rel for rel in self.relationships
-            if rel.source != pod and rel.target != pod
-        ]
-
-        # Remove pod from parent
-        if pod.parent:
-            pod.parent.remove_child(pod)
-
-        # Deselect if this was the selected pod
-        if self.selected_pod == pod:
-            self.selected_pod = None
-
-        self.render_manager.render()
-
-    def delete_relationship(self, relationship: Relationship):
-        """Delete a relationship."""
-        # Confirm deletion
-        label_text = relationship.label if relationship.label else "this relationship"
-        response = messagebox.askyesno(
-            "Delete Relationship",
-            f"Are you sure you want to delete {label_text}?"
-        )
-        if not response:
-            return
-
-        # Save state for undo
-        self.state_manager.save_state()
-
-        # Remove relationship
-        if relationship in self.relationships:
-            self.relationships.remove(relationship)
-
-        # Deselect if this was the selected relationship
-        if self.selected_relationship == relationship:
-            self.selected_relationship = None
-
-        self.render_manager.render()
-
-    def delete_selected(self):
-        """Delete the currently selected pod(s) or relationship using Delete key."""
-        if self.selected_pods:
-            # Delete all selected pods
-            if len(self.selected_pods) == 1:
-                self.delete_pod(self.selected_pods[0])
-            else:
-                # Confirm deletion of multiple pods
-                response = messagebox.askyesno(
-                    "Delete Pods",
-                    f"Are you sure you want to delete {len(self.selected_pods)} pods?\nThis will also delete all relationships connected to them."
-                )
-                if not response:
-                    return
-
-                # Save state for undo
-                self.state_manager.save_state()
-
-                # Delete all selected pods
-                for pod in list(self.selected_pods):  # Use list() to avoid modifying during iteration
-                    # Remove all relationships connected to this pod
-                    self.relationships = [
-                        rel for rel in self.relationships
-                        if rel.source != pod and rel.target != pod
-                    ]
-
-                    # Remove pod from parent
-                    if pod.parent:
-                        pod.parent.remove_child(pod)
-
-                    pod.selected = False
-
-                # Clear selections
-                self.selected_pods.clear()
-                self.selected_pod = None
-                self.render_manager.render()
-        elif self.selected_relationship:
-            self.delete_relationship(self.selected_relationship)
-
-    def move_selected(self, dx: float, dy: float):
-        """Move selected pods by the given delta."""
-        if not self.selected_pods:
-            return
-
-        # Save state for undo
-        self.state_manager.save_state()
-
-        # Move all selected pods
-        for pod in self.selected_pods:
-            pod.x += dx
-            pod.y += dy
-
-        self.render_manager.render()
-
-    def select_all(self):
-        """Select all pods in the current container."""
-        # Clear current selections
-        for pod in self.selected_pods:
-            pod.selected = False
-        self.selected_pods.clear()
-
-        # Select all pods in current container
-        for pod in self.current_container.children:
-            pod.selected = True
-            self.selected_pods.append(pod)
-
-        self.selected_pod = self.selected_pods[0] if self.selected_pods else None
-        self.render_manager.render()
-
-    def duplicate_selected(self):
-        """Duplicate the selected pod(s) - shortcut for copy+paste."""
-        if not self.selected_pods:
-            return
-
-        # Use existing copy and paste functionality
-        self.copy_pod()
-        self.paste_pod()
-
-    def copy_pod(self):
-        """Copy the selected pod(s) to clipboard."""
-        if not self.selected_pods:
-            return
-
-        # Save pod data to clipboard (support multiple pods)
-        if len(self.selected_pods) == 1:
-            self.clipboard = {"single": self.selected_pods[0].to_dict()}
-        else:
-            self.clipboard = {"multiple": [pod.to_dict() for pod in self.selected_pods]}
-
-    def paste_pod(self):
-        """Paste pod(s) from clipboard."""
-        if not self.clipboard:
-            return
-
-        # Save state for undo
-        self.state_manager.save_state()
-
-        # Handle both old (single pod dict) and new (single/multiple) clipboard formats
-        if "single" in self.clipboard:
-            pod_data = self.clipboard["single"]
-            new_pod = Pod.from_dict(pod_data)
-            new_pod.id = str(uuid.uuid4())
-            new_pod.x += 30
-            new_pod.y += 30
-            new_pod.name = f"{new_pod.name} (Copy)"
-            self._update_pod_ids(new_pod)
-            self.current_container.add_child(new_pod)
-        elif "multiple" in self.clipboard:
-            # Paste multiple pods
-            for pod_data in self.clipboard["multiple"]:
-                new_pod = Pod.from_dict(pod_data)
-                new_pod.id = str(uuid.uuid4())
-                new_pod.x += 30
-                new_pod.y += 30
-                new_pod.name = f"{new_pod.name} (Copy)"
-                self._update_pod_ids(new_pod)
-                self.current_container.add_child(new_pod)
-        else:
-            # Old format - single pod dict
-            new_pod = Pod.from_dict(self.clipboard)
-            new_pod.id = str(uuid.uuid4())
-            new_pod.x += 30
-            new_pod.y += 30
-            new_pod.name = f"{new_pod.name} (Copy)"
-            self._update_pod_ids(new_pod)
-            self.current_container.add_child(new_pod)
-
-        self.render_manager.render()
-
-    def _update_pod_ids(self, pod: Pod):
-        """Recursively update pod and children IDs when copying."""
-        for child in pod.children:
-            child.id = str(uuid.uuid4())
-            self._update_pod_ids(child)
-
-    def align_pods(self, direction: str):
-        """Align selected pods in the specified direction."""
-        if len(self.selected_pods) < 2:
-            return  # Need at least 2 pods to align
-
-        # Save state for undo
-        self.state_manager.save_state()
-
-        if direction == "left":
-            # Align to leftmost edge
-            min_x = min(pod.x - pod.width / 2 for pod in self.selected_pods)
-            for pod in self.selected_pods:
-                pod.x = min_x + pod.width / 2
-        elif direction == "right":
-            # Align to rightmost edge
-            max_x = max(pod.x + pod.width / 2 for pod in self.selected_pods)
-            for pod in self.selected_pods:
-                pod.x = max_x - pod.width / 2
-        elif direction == "center":
-            # Align to horizontal center
-            avg_x = sum(pod.x for pod in self.selected_pods) / len(self.selected_pods)
-            for pod in self.selected_pods:
-                pod.x = avg_x
-        elif direction == "top":
-            # Align to top edge
-            min_y = min(pod.y - pod.height / 2 for pod in self.selected_pods)
-            for pod in self.selected_pods:
-                pod.y = min_y + pod.height / 2
-        elif direction == "bottom":
-            # Align to bottom edge
-            max_y = max(pod.y + pod.height / 2 for pod in self.selected_pods)
-            for pod in self.selected_pods:
-                pod.y = max_y - pod.height / 2
-        elif direction == "middle":
-            # Align to vertical middle
-            avg_y = sum(pod.y for pod in self.selected_pods) / len(self.selected_pods)
-            for pod in self.selected_pods:
-                pod.y = avg_y
-
         self.render_manager.render()
 
     def toggle_grid(self):

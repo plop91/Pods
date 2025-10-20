@@ -204,7 +204,7 @@ class EventHandler:
         """Handle dragging on canvas."""
         if self.app.resizing and self.app.selected_pod:
             # Resize the pod
-            self.app.resize_pod(event.x, event.y)
+            self.app.pod_operations.resize_pod(event.x, event.y)
             self.app.render_manager.render()
         elif self.app.panning:
             # Pan the view
@@ -377,32 +377,32 @@ class EventHandler:
 
         if clicked_pod:
             # Pod context menu
-            context_menu.add_command(label="Edit Name", command=lambda: self.app.edit_pod_name(clicked_pod))
-            context_menu.add_command(label="Edit Description", command=lambda: self.app.edit_pod_description(clicked_pod))
+            context_menu.add_command(label="Edit Name", command=lambda: self.app.pod_operations.edit_pod_name(clicked_pod))
+            context_menu.add_command(label="Edit Description", command=lambda: self.app.pod_operations.edit_pod_description(clicked_pod))
             context_menu.add_separator()
             context_menu.add_command(label="Change Color", command=lambda: self.app.color_picker_manager.change_pod_color(clicked_pod))
             context_menu.add_separator()
 
             # Toggle description submenu
             if clicked_pod.has_description:
-                context_menu.add_command(label="Disable Description", command=lambda: self.app.toggle_pod_description(clicked_pod, False))
+                context_menu.add_command(label="Disable Description", command=lambda: self.app.pod_operations.toggle_pod_description(clicked_pod, False))
             else:
-                context_menu.add_command(label="Enable Description", command=lambda: self.app.toggle_pod_description(clicked_pod, True))
+                context_menu.add_command(label="Enable Description", command=lambda: self.app.pod_operations.toggle_pod_description(clicked_pod, True))
 
             context_menu.add_separator()
-            context_menu.add_command(label="Delete Pod", command=lambda: self.app.delete_pod(clicked_pod))
+            context_menu.add_command(label="Delete Pod", command=lambda: self.app.pod_operations.delete_pod(clicked_pod))
 
         elif clicked_rel:
             # Relationship context menu
-            context_menu.add_command(label="Edit Label", command=lambda: self.app.edit_relationship_label(clicked_rel))
-            context_menu.add_command(label="Edit Description", command=lambda: self.app.edit_relationship_description(clicked_rel))
+            context_menu.add_command(label="Edit Label", command=lambda: self.app.pod_operations.edit_relationship_label(clicked_rel))
+            context_menu.add_command(label="Edit Description", command=lambda: self.app.pod_operations.edit_relationship_description(clicked_rel))
             context_menu.add_separator()
-            context_menu.add_command(label="Delete Relationship", command=lambda: self.app.delete_relationship(clicked_rel))
+            context_menu.add_command(label="Delete Relationship", command=lambda: self.app.pod_operations.delete_relationship(clicked_rel))
 
         else:
             # Empty space context menu
-            context_menu.add_command(label="Add Oval Pod", command=lambda: self.app.add_pod_at_position(event.x, event.y, "oval"))
-            context_menu.add_command(label="Add Rectangle Pod", command=lambda: self.app.add_pod_at_position(event.x, event.y, "rectangle"))
+            context_menu.add_command(label="Add Oval Pod", command=lambda: self.app.pod_operations.add_pod_at_position(event.x, event.y, "oval"))
+            context_menu.add_command(label="Add Rectangle Pod", command=lambda: self.app.pod_operations.add_pod_at_position(event.x, event.y, "rectangle"))
             context_menu.add_separator()
             context_menu.add_command(label="Reset View", command=self.app.reset_view)
 
