@@ -436,11 +436,15 @@ class RenderManager:
                 target_x = world_x * self.app.zoom_scale + offset_x
                 target_y = world_y * self.app.zoom_scale + offset_y
 
-        # Only draw if at least one endpoint is in current container or is a ghost
+        # Only draw if BOTH endpoints are visible (in container or shown as ghost)
         source_in_container = rel.source.parent == self.app.current_container
         target_in_container = rel.target.parent == self.app.current_container
 
-        if not (source_in_container or target_in_container or source_is_ghost or target_is_ghost):
+        # Check if both endpoints are visible
+        source_visible = source_in_container or source_is_ghost
+        target_visible = target_in_container or target_is_ghost
+
+        if not (source_visible and target_visible):
             return
 
         # Determine line color
