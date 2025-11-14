@@ -5,10 +5,19 @@
 
 class PodsApp {
     constructor() {
+        console.log('Pods App initializing...');
+
         // Canvas setup
         this.canvas = document.getElementById('podsCanvas');
+        if (!this.canvas) {
+            console.error('Canvas element not found!');
+            alert('Error: Canvas element not found. The application cannot start.');
+            return;
+        }
+
         this.ctx = this.canvas.getContext('2d');
         this.resizeCanvas();
+        console.log('Canvas initialized:', this.canvas.width, 'x', this.canvas.height);
 
         // Application state
         this.currentContainer = null;  // Current pod we're viewing inside
@@ -47,8 +56,13 @@ class PodsApp {
 
     resizeCanvas() {
         const container = this.canvas.parentElement;
-        this.canvas.width = container.clientWidth;
-        this.canvas.height = container.clientHeight;
+        const width = container.clientWidth || 800;
+        const height = container.clientHeight || 600;
+
+        this.canvas.width = width;
+        this.canvas.height = height;
+
+        console.log('Canvas resized to:', width, 'x', height);
         this.render();
     }
 
@@ -76,16 +90,20 @@ class PodsApp {
 
     async loadRootPod() {
         try {
+            console.log('Loading root pod...');
             const rootPod = await this.apiRequest('/pods/root/');
+            console.log('Root pod loaded:', rootPod);
             this.currentContainer = rootPod;
             await this.loadCurrentView();
         } catch (error) {
             console.error('Failed to load root pod:', error);
+            alert('Failed to load the application. Please check the console for errors.');
         }
     }
 
     async loadCurrentView() {
         try {
+            console.log('Loading current view...');
             // Load pods in current container
             let endpoint = '/pods/';
             if (this.currentContainer && this.currentContainer.id) {
@@ -94,15 +112,21 @@ class PodsApp {
                 endpoint += '?parent=null';
             }
 
+            console.log('Fetching pods from:', endpoint);
             this.pods = await this.apiRequest(endpoint);
+            console.log('Loaded pods:', this.pods);
 
             // Load relationships
-            if (this.currentContainer) {
+            if (this.currentContainer && this.currentContainer.id) {
+                console.log('Fetching relationships...');
                 this.relationships = await this.apiRequest(`/relationships/?container=${this.currentContainer.id}`);
+                console.log('Loaded relationships:', this.relationships);
             }
 
             this.updateBreadcrumbs();
+            console.log('Rendering canvas...');
             this.render();
+            console.log('Render complete');
         } catch (error) {
             console.error('Failed to load current view:', error);
         }
@@ -635,5 +659,12 @@ class PodsApp {
 
 // Initialize the application when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
-    window.podsApp = new PodsApp();
+    console.log('DOM Content Loaded - Starting Pods App');
+    try {
+        window.podsApp = new PodsApp();
+        console.log('Pods App created successfully');
+    } catch (error) {
+        console.error('Error creating Pods App:', error);
+        alert('Error starting the Pods application: ' + error.message);
+    }
 });
