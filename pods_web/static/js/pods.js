@@ -7,18 +7,7 @@ class PodsApp {
     constructor() {
         console.log('Pods App initializing...');
 
-        // Canvas setup
-        this.canvas = document.getElementById('podsCanvas');
-        if (!this.canvas) {
-            console.error('Canvas element not found!');
-            alert('Error: Canvas element not found. The application cannot start.');
-            return;
-        }
-
-        this.ctx = this.canvas.getContext('2d');
-        this.resizeCanvas();
-        console.log('Canvas initialized:', this.canvas.width, 'x', this.canvas.height);
-
+        // Initialize all state variables FIRST (before any method calls)
         // Application state
         this.currentContainer = null;  // Current pod we're viewing inside
         this.pods = [];  // Pods in current view
@@ -47,7 +36,19 @@ class PodsApp {
         // API base URL
         this.apiBase = '/api';
 
-        // Initialize
+        // Canvas setup (after state initialization)
+        this.canvas = document.getElementById('podsCanvas');
+        if (!this.canvas) {
+            console.error('Canvas element not found!');
+            alert('Error: Canvas element not found. The application cannot start.');
+            return;
+        }
+
+        this.ctx = this.canvas.getContext('2d');
+        this.resizeCanvas();
+        console.log('Canvas initialized:', this.canvas.width, 'x', this.canvas.height);
+
+        // Initialize event listeners and load data
         this.setupEventListeners();
         this.loadRootPod();
     }
