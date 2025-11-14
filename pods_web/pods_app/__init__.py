@@ -1,0 +1,1 @@
+# Pods Django app

@@ -1,0 +1,106 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pods - Visual Idea Organization</title>
+    <link rel="stylesheet" href="{% static 'css/style.css' %}">
+</head>
+<body>
+    <div id="app">
+        <!-- Toolbar -->
+        <div id="toolbar">
+            <div class="toolbar-left">
+                <button id="backBtn" class="toolbar-btn" disabled>
+                    <svg width="20" height="20" viewBox="0 0 20 20">
+                        <path d="M12 4 L6 10 L12 16" stroke="currentColor" fill="none" stroke-width="2"/>
+                    </svg>
+                    Back
+                </button>
+                <div id="breadcrumbs"></div>
+            </div>
+
+            <div class="toolbar-center">
+                <h1>Pods</h1>
+            </div>
+
+            <div class="toolbar-right">
+                <button id="addPodBtn" class="toolbar-btn primary">
+                    <svg width="20" height="20" viewBox="0 0 20 20">
+                        <path d="M10 4 L10 16 M4 10 L16 10" stroke="currentColor" fill="none" stroke-width="2"/>
+                    </svg>
+                    Add Pod
+                </button>
+                <button id="addRelationshipBtn" class="toolbar-btn">
+                    <svg width="20" height="20" viewBox="0 0 20 20">
+                        <path d="M4 10 L16 10" stroke="currentColor" fill="none" stroke-width="2"/>
+                        <circle cx="4" cy="10" r="2" fill="currentColor"/>
+                        <circle cx="16" cy="10" r="2" fill="currentColor"/>
+                    </svg>
+                    Add Link
+                </button>
+                <button id="saveBtn" class="toolbar-btn">
+                    <svg width="20" height="20" viewBox="0 0 20 20">
+                        <path d="M4 16 L4 4 L12 4 L16 8 L16 16 Z" stroke="currentColor" fill="none" stroke-width="2"/>
+                        <path d="M8 4 L8 8 L14 8" stroke="currentColor" fill="none" stroke-width="2"/>
+                    </svg>
+                    Save
+                </button>
+            </div>
+        </div>
+
+        <!-- Canvas Container -->
+        <div id="canvas-container">
+            <canvas id="podsCanvas"></canvas>
+        </div>
+
+        <!-- Properties Panel -->
+        <div id="propertiesPanel" class="panel hidden">
+            <h3>Properties</h3>
+            <div id="propertiesContent"></div>
+        </div>
+
+        <!-- Add Pod Dialog -->
+        <div id="addPodDialog" class="dialog hidden">
+            <div class="dialog-content">
+                <h2>Add New Pod</h2>
+                <form id="addPodForm">
+                    <div class="form-group">
+                        <label for="podName">Name:</label>
+                        <input type="text" id="podName" name="name" required autofocus>
+                    </div>
+                    <div class="form-group">
+                        <label for="podShape">Shape:</label>
+                        <select id="podShape" name="shape">
+                            <option value="oval">Oval</option>
+                            <option value="rectangle">Rectangle</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="podColor">Color:</label>
+                        <input type="color" id="podColor" name="color" value="#E8F4F8">
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn primary">Create</button>
+                        <button type="button" class="btn" id="cancelAddPod">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Add Relationship Dialog -->
+        <div id="addRelationshipDialog" class="dialog hidden">
+            <div class="dialog-content">
+                <h2>Create Relationship</h2>
+                <p class="instruction">Click on the source pod, then click on the target pod</p>
+                <div class="form-actions">
+                    <button type="button" class="btn" id="cancelAddRelationship">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{% static 'js/pods.js' %}"></script>
+</body>
+</html>
