@@ -201,8 +201,8 @@ class FileManager:
         self.app.zoom_scale = 1.0
 
         # Clear undo/redo stacks
-        self.app.state_manager.undo_stack.clear()
-        self.app.state_manager.redo_stack.clear()
+        self.app.undo_stack.clear()
+        self.app.redo_stack.clear()
 
         # Update UI
         self.app.nav_label.config(text="Current: Main")

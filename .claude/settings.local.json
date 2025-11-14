@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nRefactor: Consolidate architecture back into main app.py\n\nReverse previous manager-based refactoring (Phases 5-7) in favor of a simpler, consolidated architecture. All functionality from PodOperations, EventHandler, HitDetection, and RenderManager classes is now directly in the PodsApp class for improved maintainability and reduced complexity.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
