@@ -226,6 +226,7 @@ class PodsApp {
     renderPod(pod) {
         const isSelected = this.selectedPod && this.selectedPod.id === pod.id;
         const isHovered = this.hoveredPod && this.hoveredPod.id === pod.id;
+        const isRelationshipSource = this.relationshipSourcePod && this.relationshipSourcePod.id === pod.id;
 
         // Get bounding box
         const x1 = pod.x - pod.width / 2;
@@ -235,9 +236,14 @@ class PodsApp {
         this.ctx.save();
 
         // Set colors
-        const fillColor = pod.color || '#E8F4F8';
+        let fillColor = pod.color || '#E8F4F8';
         const borderColor = pod.border_color || '#2C3E50';
         const textColor = pod.text_color || '#2C3E50';
+
+        // Highlight source pod in relationship creation mode
+        if (isRelationshipSource) {
+            fillColor = '#FFF3CD';  // Light yellow background
+        }
 
         this.ctx.fillStyle = fillColor;
         this.ctx.strokeStyle = borderColor;
@@ -285,6 +291,21 @@ class PodsApp {
                 this.ctx.stroke();
             }
             this.ctx.setLineDash([]);
+        }
+
+        // Draw relationship source highlight
+        if (isRelationshipSource) {
+            this.ctx.strokeStyle = '#856404';  // Warning yellow/orange
+            this.ctx.lineWidth = 4;
+            this.ctx.setLineDash([]);
+
+            if (pod.shape === 'rectangle') {
+                this.ctx.strokeRect(x1 - 3, y1 - 3, pod.width + 6, pod.height + 6);
+            } else {
+                this.ctx.beginPath();
+                this.ctx.ellipse(pod.x, pod.y, pod.width / 2 + 3, pod.height / 2 + 3, 0, 0, 2 * Math.PI);
+                this.ctx.stroke();
+            }
         }
 
         this.ctx.restore();
@@ -427,16 +448,26 @@ class PodsApp {
 
         // Handle relationship creation
         if (this.creatingRelationship) {
+            console.log('Relationship creation mode - clicked pod:', clickedPod);
             if (clickedPod) {
                 if (!this.relationshipSourcePod) {
                     // First click - select source
+                    console.log('Selected source pod:', clickedPod.name);
                     this.relationshipSourcePod = clickedPod;
+                    this.updateRelationshipDialog();
+                    this.render();  // Re-render to show selection
                 } else if (clickedPod.id !== this.relationshipSourcePod.id) {
                     // Second click - create relationship
+                    console.log('Selected target pod:', clickedPod.name);
+                    console.log('Creating relationship from', this.relationshipSourcePod.name, 'to', clickedPod.name);
                     await this.createRelationship(this.relationshipSourcePod.id, clickedPod.id);
                     this.cancelRelationshipCreation();
                     await this.loadCurrentView();
+                } else {
+                    console.log('Cannot create relationship to same pod');
                 }
+            } else {
+                console.log('No pod clicked - click on a pod to select it');
             }
             return;
         }
@@ -596,14 +627,32 @@ class PodsApp {
     }
 
     startRelationshipCreation() {
+        console.log('Starting relationship creation mode');
         this.creatingRelationship = true;
         this.relationshipSourcePod = null;
         this.tempRelationshipEnd = null;
         this.canvas.classList.add('creating-relationship');
         document.getElementById('addRelationshipDialog').classList.remove('hidden');
+        this.updateRelationshipDialog();
+    }
+
+    updateRelationshipDialog() {
+        const dialog = document.getElementById('addRelationshipDialog');
+        const instruction = dialog.querySelector('.instruction');
+
+        if (!this.relationshipSourcePod) {
+            instruction.textContent = 'Step 1: Click on the SOURCE pod';
+            instruction.style.color = '#0c5460';
+            instruction.style.fontWeight = 'bold';
+        } else {
+            instruction.textContent = `Step 2: Click on the TARGET pod (Source: ${this.relationshipSourcePod.name})`;
+            instruction.style.color = '#856404';
+            instruction.style.fontWeight = 'bold';
+        }
     }
 
     cancelRelationshipCreation() {
+        console.log('Cancelling relationship creation mode');
         this.creatingRelationship = false;
         this.relationshipSourcePod = null;
         this.tempRelationshipEnd = null;
