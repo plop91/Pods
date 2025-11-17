@@ -1,3 +1,19 @@
 Django>=4.2,<5.0
 djangorestframework>=3.14.0
 django-cors-headers>=4.0.0
+
+# Database
+psycopg2-binary>=2.9.0  # PostgreSQL adapter
+
+# Environment variables
+python-decouple>=3.8
+
+# Caching (optional, for production)
+redis>=5.0.0
+django-redis>=5.4.0
+
+# Error tracking (optional, for production)
+sentry-sdk>=1.40.0
+
+# Testing
+coverage>=7.4.0
